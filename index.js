@@ -31,12 +31,12 @@ const TICKET_CONFIGS = {
     label: "دعم فني",
     emoji: "🛠️",
     style: ButtonStyle.Primary, // لون أزرق
-    categoryId: "ضع_هنا_ايدي_كاتيجوري_الدعم_الفني",
-    supportRoleId: "ضع_هنا_ايدي_رتبة_الدعم_الفني",
-    logChannelId: "ضع_هنا_ايدي_روم_لوق_الدعم_الفني",
+    categoryId: "1524792058278187018",
+    supportRoleId: "1353008060955885658",
+    logChannelId: "1497981884980789348",
     embedTitle: "تذكرة دعم فني جديدة",
     embedColor: 0x3498db, // أزرق
-    image: "https://i.imgur.com/example_support.png" // رابط الصورة داخل التذكرة
+    image: "https://media.discordapp.net/attachments/1355903779073167619/1502427418839744663/423_20250417230604.png?ex=6a595212&is=6a580092&hm=27d86e58c927956d56356ef483a7055c0d8049b9e6582f5d8d2e73fc190061cf&=&format=webp&quality=lossless&width=1860&height=718" // رابط الصورة داخل التذكرة
   },
   complaint: {
     label: "تقديم شكوى",
