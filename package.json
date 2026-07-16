@@ -1,7 +1,7 @@
 {
-  "name": "my-discord-bot",
+  "name": "discord-ticket-bot",
   "version": "1.0.0",
-  "description": "Discord Bot on GitHub",
+  "description": "Multi-category Discord ticket bot with logs, custom roles and images",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
