@@ -25,7 +25,7 @@ const client = new Client({
 });
 
 // ================= [ إعدادات لوحات التذاكر ] =================
-// استبدل العبارات بين علامات التنصيص بالـ ID الحقيقي من سيرفرك
+// تأكد من وضع الـ IDs الحقيقية الخاصة بسيرفرك هنا
 const TICKET_CONFIGS = {
   support: {
     label: "دعم فني",
@@ -39,7 +39,6 @@ const TICKET_CONFIGS = {
     image: "https://media.discordapp.net/attachments/1355903779073167619/1502427418839744663/423_20250417230604.png?ex=6a595212&is=6a580092&hm=27d86e58c927956d56356ef483a7055c0d8049b9e6582f5d8d2e73fc190061cf&=&format=webp&quality=lossless&width=1860&height=718" // رابط الصورة داخل التذكرة
   },
 };
-
 client.once('ready', () => {
   console.log(`تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 });
@@ -49,7 +48,6 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   
   if (message.content === '!setup-tickets') {
-    // التأكد من أن منفذ الأمر لديه صلاحيات المسؤول
     if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
       return message.reply('عذراً، هذا الأمر مخصص لـ إدارة السيرفر فقط!');
     }
@@ -58,7 +56,7 @@ client.on('messageCreate', async (message) => {
       .setTitle('مركز المساعدة والتذاكر 🎫')
       .setDescription('مرحباً بك! لفتح تذكرة جديدة، يرجى اختيار القسم المناسب لطلبك من الأزرار الموضحة في الأسفل:')
       .setColor(0x5865F2)
-      .setImage('https://i.imgur.com/example_main_panel.png'); // صورة لوحة التحكم الرئيسية
+      .setImage('https://i.imgur.com/example_main_panel.png');
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -79,7 +77,7 @@ client.on('messageCreate', async (message) => {
     );
 
     await message.channel.send({ embeds: [embed], components: [row] });
-    message.delete().catch(() => {}); // حذف رسالة الأمر
+    message.delete().catch(() => {});
   }
 });
 
@@ -94,7 +92,6 @@ client.on('interactionCreate', async (interaction) => {
   else if (customId === 'ticket_complaint') type = 'complaint';
   else if (customId === 'ticket_middleman') type = 'middleman';
   else if (customId === 'close_ticket') {
-    // إغلاق التذكرة وحذف الروم بعد 3 ثوانٍ
     await interaction.reply('سيتم إغلاق التذكرة وحذف الروم خلال 3 ثوانٍ...');
     setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
     return;
@@ -108,25 +105,18 @@ client.on('interactionCreate', async (interaction) => {
     const member = interaction.member;
 
     try {
-      // إنشاء روم التذكرة وتخصيص الصلاحيات
+      // تعديل هنا: إنشاء الروم معتمداً بالكامل على صلاحيات الكاتيجوري لتجنب حظر بوت الحماية
       const ticketChannel = await guild.channels.create({
         name: `${type}-${member.user.username}`,
         type: ChannelType.GuildText,
-        parent: config.categoryId,
-        permissionOverwrites: [
-          {
-            id: guild.id, // منع الجميع من المشاهدة
-            deny: [PermissionFlagsBits.ViewChannel],
-          },
-          {
-            id: member.id, // السماح لرافع التذكرة بالمشاهدة وإرسال الرسائل
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-          },
-          {
-            id: config.supportRoleId, // السماح لرتبة الدعم المخصصة للقسم بالمشاهدة والإجابة
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-          }
-        ]
+        parent: config.categoryId
+      });
+
+      // تعديل إضافي: إعطاء العضو صلاحية رؤية تذكرته بشكل منفصل بعد إنشائها دون لمس الرتب الأساسية دفعة واحدة
+      await ticketChannel.permissionOverwrites.create(member.id, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
       });
 
       // رسالة الترحيب المخصصة داخل التذكرة
@@ -170,7 +160,7 @@ client.on('interactionCreate', async (interaction) => {
 
     } catch (error) {
       console.error(error);
-      await interaction.editReply({ content: 'حدث خطأ أثناء إنشاء التذكرة. تأكد من صحة الـ IDs وصلاحيات البوت بالسيرفر.', ephemeral: true });
+      await interaction.editReply({ content: 'حدث خطأ أثناء إنشاء التذكرة. تأكد من إعدادات الكاتيجوري وصلاحيات البوت.', ephemeral: true });
     }
   }
 });
