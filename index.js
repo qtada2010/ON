@@ -38,28 +38,6 @@ const TICKET_CONFIGS = {
     embedColor: 0x3498db, // أزرق
     image: "https://media.discordapp.net/attachments/1355903779073167619/1502427418839744663/423_20250417230604.png?ex=6a595212&is=6a580092&hm=27d86e58c927956d56356ef483a7055c0d8049b9e6582f5d8d2e73fc190061cf&=&format=webp&quality=lossless&width=1860&height=718" // رابط الصورة داخل التذكرة
   },
-  complaint: {
-    label: "تقديم شكوى",
-    emoji: "⚠️",
-    style: ButtonStyle.Danger, // لون أحمر
-    categoryId: "ضع_هنا_ايدي_كاتيجوري_الشكاوى",
-    supportRoleId: "ضع_هنا_ايدي_رتبة_إدارة_الشكاوى",
-    logChannelId: "ضع_هنا_ايدي_روم_لوق_الشكاوى",
-    embedTitle: "تذكرة شكوى جديدة",
-    embedColor: 0xe74c3c, // أحمر
-    image: "https://i.imgur.com/example_complaint.png"
-  },
-  middleman: {
-    label: "طلب وسيط",
-    emoji: "🤝",
-    style: ButtonStyle.Success, // لون أخضر
-    categoryId: "ضع_هنا_ايدي_كاتيجوري_الوساطة",
-    supportRoleId: "ضع_هنا_ايدي_رتبة_الوسطاء",
-    logChannelId: "ضع_هنا_ايدي_روم_لوق_الوساطة",
-    embedTitle: "طلب وساطة جديد",
-    embedColor: 0x2ecc71, // أخضر
-    image: "https://i.imgur.com/example_mm.png"
-  }
 };
 
 client.once('ready', () => {
