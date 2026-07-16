@@ -13,29 +13,30 @@ const {
 } = require('discord.js');
 const express = require('express');
 
-// تشغيل خادم ويب للاستضافة
+// تشغيل خادم ويب للاستضافة لمنع Render من النوم
 const app = express();
 app.get('/', (req, res) => res.send('بوت التذاكر المطور يعمل بنشاط وبدون توقف!'));
 app.listen(process.env.PORT || 3000, () => console.log('خادم الويب جاهز ومستعد'));
 
-// إعداد البوت والـ Intents
+// إعداد البوت والـ Intents (تمت إضافة Guilds للتفاعل مع السيرفر)
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates // مفيد إذا كنت تتعامل مع الرومات الصوتية لاحقاً
   ]
 });
 
 // ================= [ إعدادات لوحات التذاكر ] =================
-// ضع الـ IDs الخاصة بسيرفرك هنا بدقة داخل علامات التنصيص
+// تنبيه هام: يجب استبدال الكلمات المكتوبة بـ IDs حقيقية (أرقام فقط) لكي لا يتعطل البوت!
 const TICKET_CONFIGS = {
   support: {
     label: "دعم فني",
     emoji: "🛠️",
     style: ButtonStyle.Primary,
-    categoryId: "1524792058278187018",
-    supportRoleId: "1353008060955885658",
-    logChannelId: "1497980647904510144",
+    categoryId: "1524792058278187018", // تأكد من صحة هذا الايدي
+    supportRoleId: "1353008060955885658", // تأكد من صحة هذا الايدي
+    logChannelId: "1497980647904510144", // تأكد من صحة هذا الايدي
     embedTitle: "تذكرة دعم فني جديدة",
     embedColor: 0x3498db,
     image: "https://i.imgur.com/example_support.png"
@@ -44,9 +45,9 @@ const TICKET_CONFIGS = {
     label: "تقديم شكوى",
     emoji: "⚠️",
     style: ButtonStyle.Danger,
-    categoryId: "ضع_هنا_ايدي_كاتيجوري_الشكاوى",
-    supportRoleId: "ضع_هنا_ايدي_رتبة_إدارة_الشكاوى",
-    logChannelId: "ضع_هنا_ايدي_روم_لوق_الشكاوى",
+    categoryId: "1524792058278187018", // قم بوضع الايدي المناسب هنا (أرقام فقط)
+    supportRoleId: "1353008060955885658", // قم بوضع الايدي المناسب هنا (أرقام فقط)
+    logChannelId: "1497980647904510144", // قم بوضع الايدي المناسب هنا (أرقام فقط)
     embedTitle: "تذكرة شكوى جديدة",
     embedColor: 0xe74c3c,
     image: "https://i.imgur.com/example_complaint.png"
@@ -55,9 +56,9 @@ const TICKET_CONFIGS = {
     label: "طلب وسيط",
     emoji: "🤝",
     style: ButtonStyle.Success,
-    categoryId: "ضع_هنا_ايدي_كاتيجوري_الوساطة",
-    supportRoleId: "ضع_هنا_ايدي_رتبة_الوسطاء",
-    logChannelId: "ضع_هنا_ايدي_روم_لوق_الوساطة",
+    categoryId: "1524792058278187018", // قم بوضع الايدي المناسب هنا (أرقام فقط)
+    supportRoleId: "1353008060955885658", // قم بوضع الايدي المناسب هنا (أرقام فقط)
+    logChannelId: "1497980647904510144", // قم بوضع الايدي المناسب هنا (أرقام فقط)
     embedTitle: "طلب وساطة جديد",
     embedColor: 0x2ecc71,
     image: "https://i.imgur.com/example_mm.png"
@@ -75,7 +76,6 @@ const commands = [
 client.once('ready', async () => {
   console.log(`تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
   
-  // تسجيل أمر السلاش في كافة سيرفرات البوت تلقائياً عند التشغيل
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     console.log('جاري تحديث أوامر البوت (Slash Commands)...');
@@ -83,7 +83,7 @@ client.once('ready', async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands },
     );
-    console.log('تم تسجيل أوامر البوت بنجاح وي مكن استخدامها الآن!');
+    console.log('تم تسجيل أوامر البوت بنجاح ويمكن استخدامها الآن!');
   } catch (error) {
     console.error('حدث خطأ أثناء تسجيل الأوامر:', error);
   }
@@ -146,19 +146,39 @@ client.on('interactionCreate', async (interaction) => {
       const guild = interaction.guild;
       const member = interaction.member;
 
+      // تحقق سريع للتأكد من أن المستخدم قام بتغيير الإعدادات الافتراضية
+      if (config.categoryId.includes("ضع_هنا") || config.supportRoleId.includes("ضع_هنا")) {
+        return interaction.editReply({ content: '❌ خطأ: لم يتم ضبط الـ IDs الخاصة بهذا القسم في ملف البرمجة حتى الآن.', ephemeral: true });
+      }
+
       try {
-        // إنشاء الروم معتمداً على إعدادات الكاتيجوري لتجنب مشاكل بوت الحماية
+        // إنشاء الروم وتحديد الصلاحيات الأساسية مباشرة لمنع أي شخص آخر من رؤيتها
         const ticketChannel = await guild.channels.create({
           name: `${type}-${member.user.username}`,
           type: ChannelType.GuildText,
-          parent: config.categoryId
-        });
-
-        // إعطاء العضو الصلاحية المنفردة لرؤية الروم بعد الإنشاء
-        await ticketChannel.permissionOverwrites.create(member.id, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true
+          parent: config.categoryId,
+          permissionOverwrites: [
+            {
+              id: guild.roles.everyone.id,
+              deny: [PermissionFlagsBits.ViewChannel], // إخفاء الروم عن الجميع
+            },
+            {
+              id: member.id,
+              allow: [
+                PermissionFlagsBits.ViewChannel, 
+                PermissionFlagsBits.SendMessages, 
+                PermissionFlagsBits.ReadMessageHistory
+              ], // السماح لصاحب التذكرة
+            },
+            {
+              id: config.supportRoleId,
+              allow: [
+                PermissionFlagsBits.ViewChannel, 
+                PermissionFlagsBits.SendMessages, 
+                PermissionFlagsBits.ReadMessageHistory
+              ], // السماح لطاقم الدعم المخصص
+            }
+          ]
         });
 
         // رسالة الترحيب المخصصة
@@ -166,8 +186,11 @@ client.on('interactionCreate', async (interaction) => {
           .setTitle(config.embedTitle)
           .setDescription(`مرحباً بك ${member}، لقد قمت بفتح تذكرة في قسم **${config.label}**.\nيرجى كتابة طلبك أو استفسارك هنا، وسيقوم فريق العمل بالرد عليك قريباً.`)
           .setColor(config.embedColor)
-          .setThumbnail(config.image)
           .setTimestamp();
+          
+        if (config.image && !config.image.includes("example")) {
+          ticketEmbed.setThumbnail(config.image);
+        }
 
         const closeButton = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -183,7 +206,7 @@ client.on('interactionCreate', async (interaction) => {
           components: [closeButton] 
         });
 
-        // إرسال اللوق
+        // إرسال اللوق لروم اللوج المخصص للقسم
         const logChannel = guild.channels.cache.get(config.logChannelId);
         if (logChannel) {
           const logEmbed = new EmbedBuilder()
@@ -195,14 +218,14 @@ client.on('interactionCreate', async (interaction) => {
             )
             .setColor(config.embedColor)
             .setTimestamp();
-          logChannel.send({ embeds: [logEmbed] });
+          logChannel.send({ embeds: [logEmbed] }).catch(() => {});
         }
 
         await interaction.editReply({ content: `تم إنشاء تذكرتك بنجاح في الروم: ${ticketChannel}`, ephemeral: true });
 
       } catch (error) {
-        console.error(error);
-        await interaction.editReply({ content: 'حدث خطأ أثناء إنشاء التذكرة. تأكد من إعدادات الـ IDs وصلاحيات البوت.', ephemeral: true });
+        console.error("خطأ أثناء إنشاء التذكرة:", error);
+        await interaction.editReply({ content: 'حدث خطأ أثناء إنشاء التذكرة. تأكد من أن صلاحية رتبة البوت أعلى من رتبة الدعم الفني، وصلاحياته تسمح بإنشاء القنوات (Manage Channels).', ephemeral: true });
       }
     }
   }
