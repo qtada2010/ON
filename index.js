@@ -1,12 +1,21 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  EmbedBuilder, 
+  ChannelType, 
+  PermissionFlagsBits 
+} = require('discord.js');
 const express = require('express');
 
-// تشغيل خادم ويب بسيط للاستضافة
+// خادم ويب صغير لتجنب إغلاق البوت من قبل الاستضافة
 const app = express();
-app.get('/', (req, res) => res.send('البوت يعمل بنشاط!'));
-app.listen(process.env.PORT || 3000, () => console.log('خادم الويب جاهز'));
+app.get('/', (req, res) => res.send('بوت التذاكر يعمل بنشاط وبدون توقف!'));
+app.listen(process.env.PORT || 3000, () => console.log('خادم الويب جاهز ومستعد'));
 
-// إعداد البوت
+// إعداد البوت والـ Intents المطلوبة
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -15,16 +24,177 @@ const client = new Client({
   ]
 });
 
+// ================= [ إعدادات لوحات التذاكر ] =================
+// استبدل العبارات بين علامات التنصيص بالـ ID الحقيقي من سيرفرك
+const TICKET_CONFIGS = {
+  support: {
+    label: "دعم فني",
+    emoji: "🛠️",
+    style: ButtonStyle.Primary, // لون أزرق
+    categoryId: "ضع_هنا_ايدي_كاتيجوري_الدعم_الفني",
+    supportRoleId: "ضع_هنا_ايدي_رتبة_الدعم_الفني",
+    logChannelId: "ضع_هنا_ايدي_روم_لوق_الدعم_الفني",
+    embedTitle: "تذكرة دعم فني جديدة",
+    embedColor: 0x3498db, // أزرق
+    image: "https://i.imgur.com/example_support.png" // رابط الصورة داخل التذكرة
+  },
+  complaint: {
+    label: "تقديم شكوى",
+    emoji: "⚠️",
+    style: ButtonStyle.Danger, // لون أحمر
+    categoryId: "ضع_هنا_ايدي_كاتيجوري_الشكاوى",
+    supportRoleId: "ضع_هنا_ايدي_رتبة_إدارة_الشكاوى",
+    logChannelId: "ضع_هنا_ايدي_روم_لوق_الشكاوى",
+    embedTitle: "تذكرة شكوى جديدة",
+    embedColor: 0xe74c3c, // أحمر
+    image: "https://i.imgur.com/example_complaint.png"
+  },
+  middleman: {
+    label: "طلب وسيط",
+    emoji: "🤝",
+    style: ButtonStyle.Success, // لون أخضر
+    categoryId: "ضع_هنا_ايدي_كاتيجوري_الوساطة",
+    supportRoleId: "ضع_هنا_ايدي_رتبة_الوسطاء",
+    logChannelId: "ضع_هنا_ايدي_روم_لوق_الوساطة",
+    embedTitle: "طلب وساطة جديد",
+    embedColor: 0x2ecc71, // أخضر
+    image: "https://i.imgur.com/example_mm.png"
+  }
+};
+
 client.once('ready', () => {
-  console.log(`تم تشغيل البوت باسم: ${client.user.tag}`);
+  console.log(`تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 });
 
-client.on('messageCreate', (message) => {
+// أمر إنشاء لوحة التحكم بالتذاكر (اكتب !setup-tickets في السيرفر)
+client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  if (message.content === 'مرحبا') {
-    message.reply('أهلاً بك يا صديقي!');
+  
+  if (message.content === '!setup-tickets') {
+    // التأكد من أن منفذ الأمر لديه صلاحيات المسؤول
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('عذراً، هذا الأمر مخصص لـ إدارة السيرفر فقط!');
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('مركز المساعدة والتذاكر 🎫')
+      .setDescription('مرحباً بك! لفتح تذكرة جديدة، يرجى اختيار القسم المناسب لطلبك من الأزرار الموضحة في الأسفل:')
+      .setColor(0x5865F2)
+      .setImage('https://i.imgur.com/example_main_panel.png'); // صورة لوحة التحكم الرئيسية
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('ticket_support')
+        .setLabel(TICKET_CONFIGS.support.label)
+        .setEmoji(TICKET_CONFIGS.support.emoji)
+        .setStyle(TICKET_CONFIGS.support.style),
+      new ButtonBuilder()
+        .setCustomId('ticket_complaint')
+        .setLabel(TICKET_CONFIGS.complaint.label)
+        .setEmoji(TICKET_CONFIGS.complaint.emoji)
+        .setStyle(TICKET_CONFIGS.complaint.style),
+      new ButtonBuilder()
+        .setCustomId('ticket_middleman')
+        .setLabel(TICKET_CONFIGS.middleman.label)
+        .setEmoji(TICKET_CONFIGS.middleman.emoji)
+        .setStyle(TICKET_CONFIGS.middleman.style)
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+    message.delete().catch(() => {}); // حذف رسالة الأمر
   }
 });
 
-// تشغيل البوت عبر المتغير البيئي (حماية للتوكن)
+// معالجة الضغط على الأزرار
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  const customId = interaction.customId;
+  let type = '';
+
+  if (customId === 'ticket_support') type = 'support';
+  else if (customId === 'ticket_complaint') type = 'complaint';
+  else if (customId === 'ticket_middleman') type = 'middleman';
+  else if (customId === 'close_ticket') {
+    // إغلاق التذكرة وحذف الروم بعد 3 ثوانٍ
+    await interaction.reply('سيتم إغلاق التذكرة وحذف الروم خلال 3 ثوانٍ...');
+    setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
+    return;
+  }
+
+  if (type) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const config = TICKET_CONFIGS[type];
+    const guild = interaction.guild;
+    const member = interaction.member;
+
+    try {
+      // إنشاء روم التذكرة وتخصيص الصلاحيات
+      const ticketChannel = await guild.channels.create({
+        name: `${type}-${member.user.username}`,
+        type: ChannelType.GuildText,
+        parent: config.categoryId,
+        permissionOverwrites: [
+          {
+            id: guild.id, // منع الجميع من المشاهدة
+            deny: [PermissionFlagsBits.ViewChannel],
+          },
+          {
+            id: member.id, // السماح لرافع التذكرة بالمشاهدة وإرسال الرسائل
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+          },
+          {
+            id: config.supportRoleId, // السماح لرتبة الدعم المخصصة للقسم بالمشاهدة والإجابة
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+          }
+        ]
+      });
+
+      // رسالة الترحيب المخصصة داخل التذكرة
+      const ticketEmbed = new EmbedBuilder()
+        .setTitle(config.embedTitle)
+        .setDescription(`مرحباً بك ${member}، لقد قمت بفتح تذكرة في قسم **${config.label}**.\nيرجى كتابة طلبك أو استفسارك هنا، وسيقوم فريق العمل بالرد عليك في أقرب وقت ممكن.`)
+        .setColor(config.embedColor)
+        .setThumbnail(config.image)
+        .setTimestamp();
+
+      const closeButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('close_ticket')
+          .setLabel('إغلاق التذكرة')
+          .setEmoji('🔒')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await ticketChannel.send({ 
+        content: `${member} | <@&${config.supportRoleId}>`, 
+        embeds: [ticketEmbed], 
+        components: [closeButton] 
+      });
+
+      // إرسال السجل (Log) إلى الروم المحدد للقسم
+      const logChannel = guild.channels.cache.get(config.logChannelId);
+      if (logChannel) {
+        const logEmbed = new EmbedBuilder()
+          .setTitle('🎫 تذكرة جديدة')
+          .addFields(
+            { name: 'العضو المبادر:', value: `${member.user.tag} (${member.id})`, inline: true },
+            { name: 'قسم التذكرة:', value: config.label, inline: true },
+            { name: 'روم التذكرة:', value: `${ticketChannel}`, inline: true }
+          )
+          .setColor(config.embedColor)
+          .setTimestamp();
+        logChannel.send({ embeds: [logEmbed] });
+      }
+
+      await interaction.editReply({ content: `تم إنشاء تذكرتك بنجاح في الروم: ${ticketChannel}`, ephemeral: true });
+
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply({ content: 'حدث خطأ أثناء إنشاء التذكرة. تأكد من صحة الـ IDs وصلاحيات البوت بالسيرفر.', ephemeral: true });
+    }
+  }
+});
+
 client.login(process.env.DISCORD_TOKEN);
