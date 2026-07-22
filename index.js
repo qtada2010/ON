@@ -18,11 +18,12 @@ const app = express();
 app.get('/', (req, res) => res.send('بوت التذاكر المطور يعمل بنشاط وبدون توقف!'));
 app.listen(process.env.PORT || 3000, () => console.log('خادم الويب جاهز ومستعد'));
 
-// 2. إعداد البوت والـ Intents
+// 2. إعداد البوت والـ Intents (إضافة GuildMessages و MessageContent للأوامر العادية)
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent, // هام جداً بقراءة أمر !tk
     GatewayIntentBits.GuildVoiceStates
   ]
 });
@@ -31,7 +32,6 @@ const client = new Client({
 const BOOT_TIME = Date.now();
 
 // ================= [ إعدادات لوحة الدعم الفني ] =================
-// تأكد أن هذه الـ IDs حقيقية ومنسوخة من سيرفرك بدقة (أرقام فقط)
 const TICKET_CONFIG = {
   label: "دعم فني",
   emoji: "🛠️",
@@ -44,6 +44,24 @@ const TICKET_CONFIG = {
   image: "https://i.imgur.com/example_support.png"
 };
 
+// دالة مخصصة لإنشاء وإرسال لوحة التذاكر
+async function sendTicketPanel(channel) {
+  const embed = new EmbedBuilder()
+    .setTitle('مركز المساعدة والتذاكر 🎫')
+    .setDescription('مرحباً بك! لفتح تذكرة دعم فني جديدة، يرجى الضغط على الزر في الأسفل وسيتم خدمتك في أقرب وقت:')
+    .setColor(0x5865F2);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('ticket_support')
+      .setLabel(TICKET_CONFIG.label)
+      .setEmoji(TICKET_CONFIG.emoji)
+      .setStyle(TICKET_CONFIG.style)
+  );
+
+  await channel.send({ embeds: [embed], components: [row] });
+}
+
 // تعريف أمر السلاش لإنشاء لوحة التذاكر
 const commands = [
   new SlashCommandBuilder()
@@ -55,7 +73,7 @@ const commands = [
 client.once('ready', async () => {
   console.log(`تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
   
-  // خطوة طرد وإيقاف أي جلسة قديمة شغالة بنفس التوكن فوراً
+  // طرد وإيقاف أي جلسة قديمة شغالة بنفس التوكن فوراً
   try {
     console.log('جاري فحص وطرد أي نسخة قديمة للبوت...');
     client.ws.shards.forEach(shard => shard.send({ op: 6, d: { token: process.env.DISCORD_TOKEN, session_id: null, seq: 0 } }));
@@ -77,30 +95,38 @@ client.once('ready', async () => {
   }
 });
 
-// معالجة الأوامر والتفاعلات
+// 3. الاستماع للرسائل العادية (لأمر !tk)
+client.on('messageCreate', async (message) => {
+  // تجاهل البوتات والرسائل الخصوصية
+  if (message.author.bot || !message.guild) return;
+
+  // التأكد من كتابة !tk بالظبط
+  if (message.content.trim() === '!tk') {
+    // التأكد من صلاحية العضو (مسؤول Administrator)
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('❌ هذا الأمر مخصص للإدارة فقط.');
+    }
+
+    try {
+      await sendTicketPanel(message.channel);
+      // حذف كتابة العضو للترتيب إذا كان للبوت صلاحية مسح الرسائل
+      if (message.deletable) await message.delete().catch(() => {});
+    } catch (error) {
+      console.error('خطأ أثناء إرسال اللوحة عبر !tk:', error);
+    }
+  }
+});
+
+// 4. معالجة أوامر السلاش والتفاعلات بالأزرار
 client.on('interactionCreate', async (interaction) => {
   // تجاهل أي تفاعل قديم معلّق قبل تشغيل السيرفر الحالي
   if (interaction.createdAt.getTime() < BOOT_TIME) return;
 
-  // 1. تشغيل أمر السلاش لإنشاء اللوحة الرئيسية (زر واحد فقط للدعم)
+  // 1. تشغيل أمر السلاش /setup-tickets
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'setup-tickets') {
       await interaction.deferReply({ ephemeral: true });
-
-      const embed = new EmbedBuilder()
-        .setTitle('مركز المساعدة والتذاكر 🎫')
-        .setDescription('مرحباً بك! لفتح تذكرة دعم فني جديدة، يرجى الضغط على الزر في الأسفل وسيتم خدمتك في أقرب وقت:')
-        .setColor(0x5865F2);
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_support')
-          .setLabel(TICKET_CONFIG.label)
-          .setEmoji(TICKET_CONFIG.emoji)
-          .setStyle(TICKET_CONFIG.style)
-      );
-
-      await interaction.channel.send({ embeds: [embed], components: [row] });
+      await sendTicketPanel(interaction.channel);
       await interaction.editReply({ content: 'تم إرسال لوحة التذاكر بنجاح!' });
     }
     return;
