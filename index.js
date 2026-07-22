@@ -32,7 +32,7 @@ const TICKET_CONFIG = {
   label: "دعم فني",
   emoji: "🛠️",
   style: ButtonStyle.Primary,
-  categoryId: "1524792058278187018", 
+  categoryId: "1400291643500003338", 
   supportRoleId: "1353008060955885658", 
   logChannelId: "1497980647904510144", 
   embedTitle: "تذكرة دعم فني جديدة",
