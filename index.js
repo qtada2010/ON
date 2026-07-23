@@ -15,17 +15,16 @@ const {
 const express = require('express');
 
 // ==========================================
-// 1. خادم الويب والموقع الإلكتروني المتطور
+// 1. خادم الويب والموقع الإلكتروني (Dashboard)
 // ==========================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// قواعد بيانات محلية في الذاكرة
 const panelsDatabase = new Map();
 const statsDatabase = {
   totalTickets: 0,
-  adminsClaimCount: {} // { "admin_id": count }
+  adminsClaimCount: {}
 };
 
 // الصفحة الرئيسية بالموقع
@@ -218,9 +217,7 @@ client.once('ready', () => {
   console.log(`🤖 البوت يعمل باسم: ${client.user.tag}`);
 });
 
-// --------------------------------------------------
-// أجهزة المساعدة للتذاكر
-// --------------------------------------------------
+// دالة جلب معلومات التكت من موضوع القناة (Topic)
 async function getTicketInfo(channel) {
   if (!channel.topic) return null;
   try {
@@ -235,11 +232,10 @@ async function getTicketInfo(channel) {
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+  if (!message.content.startsWith(PREFIX)) return;
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
-
-  if (!message.content.startsWith(PREFIX)) return;
 
   const ticketData = await getTicketInfo(message.channel);
   if (!ticketData) return; // ليس روم تكت
@@ -249,6 +245,7 @@ client.on('messageCreate', async (message) => {
 
   const isAdmin = message.member.roles.cache.has(config.adminRoleId);
   const isHighAdmin = message.member.roles.cache.has(config.highAdminRoleId);
+  const isOwner = message.author.id === ticketData.ownerId;
 
   // أمر !claim
   if (command === 'claim') {
@@ -258,7 +255,7 @@ client.on('messageCreate', async (message) => {
     ticketData.claimedBy = message.author.id;
     await message.channel.setTopic(JSON.stringify(ticketData));
 
-    // تحديث صلاحيات الرتبة العادية للإدارة (منعهم من الكتابة وتترك المستلم والعليا فقط)
+    // منع الإدارة العادية من الكتابة وإبقاء المستلم
     await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
     await message.channel.permissionOverwrites.edit(message.author.id, { SendMessages: true, ViewChannel: true });
 
@@ -267,9 +264,11 @@ client.on('messageCreate', async (message) => {
     return message.reply(`🛠️ تم استلام التذكرة بواسطة ${message.author}`);
   }
 
-  // أمر !unclaim
+  // أمر !unclaim (للإدارة العليا أو صاحب التكت)
   if (command === 'unclaim') {
-    if (!isHighAdmin) return message.reply('❌ مخصص للإدارة العليا فقط!');
+    if (!isHighAdmin && !isOwner) {
+      return message.reply('❌ إلغاء الاستلام مخصص **للإدارة العليا** أو **صاحب التكت** فقط!');
+    }
     if (!ticketData.claimedBy) return message.reply('❌ التذكرة غير مستلمة أساساً!');
 
     ticketData.claimedBy = null;
@@ -278,12 +277,12 @@ client.on('messageCreate', async (message) => {
     // إعادة صلاحيات الكتابة للإدارة العادية
     await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
 
-    return message.reply(`🔄 تم إلغاء استلام التذكرة بواسطة الإدارة العليا: ${message.author}`);
+    return message.reply(`🔄 تم إلغاء استلام التذكرة بواسطة: ${message.author}`);
   }
 
   // أمر !close
   if (command === 'close') {
-    if (!isAdmin && !isHighAdmin) return message.reply('❌ لا تمتلك صلاحية الإغلاق!');
+    if (!isAdmin && !isHighAdmin && !isOwner) return message.reply('❌ لا تمتلك صلاحية الإغلاق!');
     await message.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
     const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
@@ -325,6 +324,7 @@ client.on('messageCreate', async (message) => {
 // التفاعل مع أزرار التذاكر
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
+  // فتح التذكرة
   if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
     await interaction.deferReply({ ephemeral: true });
 
@@ -388,6 +388,7 @@ client.on('interactionCreate', async (interaction) => {
 
   const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
   const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
+  const isOwner = interaction.user.id === ticketData.ownerId;
 
   // زر استلام (Claim)
   if (interaction.isButton() && interaction.customId === 'ticket_claim') {
@@ -406,9 +407,11 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🛠️ تم استلام التذكرة بواسطة ${interaction.user}`).setColor(0x22c55e)] });
   }
 
-  // زر إلغاء الاستلام (Unclaim)
+  // زر إلغاء الاستلام (Unclaim) - للإدارة العليا أو صاحب التكت
   if (interaction.isButton() && interaction.customId === 'ticket_unclaim') {
-    if (!isHighAdmin) return interaction.reply({ content: '❌ إلغاء الاستلام مخصص للإدارة العليا فقط!', ephemeral: true });
+    if (!isHighAdmin && !isOwner) {
+      return interaction.reply({ content: '❌ إلغاء الاستلام مخصص **للإدارة العليا** أو **صاحب التكت** فقط!', ephemeral: true });
+    }
     if (!ticketData.claimedBy) return interaction.reply({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
 
     ticketData.claimedBy = null;
@@ -417,12 +420,12 @@ client.on('interactionCreate', async (interaction) => {
     // السماح للإدارة بالكتابة مجدداً
     await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
 
-    await interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🔄 تم إلغاء استلام التذكرة بواسطة الإدارة العليا: ${interaction.user}`).setColor(0xeab308)] });
+    await interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🔄 تم إلغاء استلام التذكرة بواسطة: ${interaction.user}`).setColor(0xeab308)] });
   }
 
   // طلب وتأكيد الإغلاق
   if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
-    if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
+    if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
 
     const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_confirm_close').setLabel('تأكيد الإغلاق').setStyle(ButtonStyle.Danger),
