@@ -18,17 +18,28 @@ const {
 const express = require('express');
 
 // ==========================================
-// 1. خادم الويب ولوحة التحكم (Dashboard)
+// 1. إنشاء العميل (Client) أولاً لمنع ReferenceError
+// ==========================================
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
+
+const PREFIX = '!';
+const panelsDatabase = new Map();
+const statsDatabase = { totalTickets: 0, adminsClaimCount: {} };
+let ownerLogChannelId = null;
+
+// ==========================================
+// 2. خادم الويب ولوحة التحكم (Dashboard)
 // ==========================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const panelsDatabase = new Map(); // تخزين اللوحات { panelId: data }
-const statsDatabase = { totalTickets: 0, adminsClaimCount: {} };
-let ownerLogChannelId = null; // روم لوق الأخطاء للمالك
-
-// الصفحة الرئيسية
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -64,7 +75,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// صفحة اللوحات (إنشاء وتعديل)
 app.get('/panel', (req, res) => {
   let panelsListHTML = '';
   panelsDatabase.forEach((p, id) => {
@@ -142,7 +152,6 @@ app.get('/panel', (req, res) => {
   `);
 });
 
-// صفحة تعديل لوحة قائمة
 app.get('/edit-panel/:id', (req, res) => {
   const panel = panelsDatabase.get(req.params.id);
   if (!panel) return res.send('اللوحة غير موجودة');
@@ -200,7 +209,6 @@ app.get('/edit-panel/:id', (req, res) => {
   `);
 });
 
-// حفظ وتحديث اللوحة
 app.post('/save-panel', async (req, res) => {
   const data = req.body;
   panelsDatabase.set(data.panelId, data);
@@ -230,7 +238,6 @@ app.post('/save-panel', async (req, res) => {
   }
 });
 
-// صفحة الإحصائيات
 app.get('/stats', (req, res) => {
   let adminStatsHTML = '';
   for (const [adminId, count] of Object.entries(statsDatabase.adminsClaimCount)) {
@@ -271,17 +278,8 @@ app.get('/stats', (req, res) => {
 app.listen(process.env.PORT || 3000, () => console.log('🌐 خادم الويب يعمل بنجاح!'));
 
 // ==========================================
-// 2. إعداد ديسكورد والأوامر الشاملة
+// 3. الدوال والأوامر الأساسية للبوت
 // ==========================================
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
-
-const PREFIX = '!';
 
 async function sendLogError(title, error) {
   console.error(title, error);
@@ -331,7 +329,6 @@ async function getTicketInfo(channel) {
   try { return JSON.parse(channel.topic); } catch (e) { return null; }
 }
 
-// دالة حفظ الترانسكريبت
 async function saveTranscript(channel, config, user, ticketData) {
   const messages = await channel.messages.fetch({ limit: 100 });
   let transcriptText = `--- سجل التكت: ${channel.name} ---\n\n`;
@@ -446,7 +443,6 @@ client.on('messageCreate', async (message) => {
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. التعامل مع أوامر السلاش (/)
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'logowner') {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -516,7 +512,6 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // 2. التعامل مع الأزرار
     if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
       await interaction.deferReply({ ephemeral: true });
 
@@ -611,7 +606,9 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.message.delete().catch(() => {});
     }
 
+    // إصلاح استجابة إغلاق التكت الفورية لمنع خطأ Response Timeout
     if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
+      await interaction.deferUpdate(); // تأكيد الاستجابة فوراً
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
       const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
@@ -621,9 +618,8 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
       );
 
-      return interaction.update({ content: '✅ تم إغلاق التذكرة.', components: [] }).then(() => {
-        interaction.channel.send({ embeds: [closedEmbed], components: [closedRow] });
-      });
+      await interaction.editReply({ content: '✅ تم إغلاق التذكرة بنجاح.', components: [] });
+      return interaction.channel.send({ embeds: [closedEmbed], components: [closedRow] });
     }
 
     if (interaction.isButton() && interaction.customId === 'ticket_save_log') {
