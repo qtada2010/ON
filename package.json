@@ -1,13 +1,10 @@
 {
-  "name": "discord-ticket-bot",
+  "name": "discord-bot",
   "version": "1.0.0",
-  "description": "Multi-category Discord ticket bot with logs, custom roles and images",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "express-session": "^1.18.0"
   }
 }
