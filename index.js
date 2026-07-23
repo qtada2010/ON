@@ -7,18 +7,16 @@ const {
   EmbedBuilder, 
   ChannelType, 
   PermissionFlagsBits,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   AttachmentBuilder,
   REST,
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
+const session = require('express-session');
 
 // ==========================================
-// 1. إنشاء العميل (Client) أولاً لمنع ReferenceError
+// 1. إنشاء العميل (Client)
 // ==========================================
 const client = new Client({
   intents: [
@@ -30,17 +28,84 @@ const client = new Client({
 
 const PREFIX = '!';
 const panelsDatabase = new Map();
-const statsDatabase = { totalTickets: 0, adminsClaimCount: {} };
+const statsDatabase = { totalTickets: 0 };
 let ownerLogChannelId = null;
 
 // ==========================================
-// 2. خادم الويب ولوحة التحكم (Dashboard)
+// 2. خادم الويب ولوحة التحكم مع كلمة المرور
 // ==========================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.get('/', (req, res) => {
+// إعداد الجلسات (Session) للحفاظ على تسجيل الدخول
+app.use(session({
+  secret: 'qtada_ticket_secret_key_123',
+  resave: false,
+  saveUninitialized: true
+}));
+
+const DASHBOARD_PASSWORD = 'QTADA@2010'; // كلمة المرور المطلوبة
+
+// وسيط التحقق من كلمة المرور (Middleware)
+function requireAuth(req, res, next) {
+  if (req.session && req.session.authenticated) {
+    return next();
+  }
+  res.redirect('/login');
+}
+
+// صفحة تسجيل الدخول
+app.get('/login', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>تسجيل الدخول - لوحة التحكم</title>
+      <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
+        .login-card { background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #38bdf8; margin-bottom: 20px; }
+        input[type="password"] { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #0369a1; }
+        .error { color: #ef4444; margin-top: 10px; }
+      </style>
+    </head>
+    <body>
+      <div class="login-card">
+        <h2>🔒 تسجيل الدخول للوحة التحكم</h2>
+        <form action="/login" method="POST">
+          <input type="password" name="password" placeholder="أدخل كلمة المرور" required>
+          <button type="submit">دخول 🚀</button>
+        </form>
+        ${req.query.error ? '<p class="error">❌ كلمة المرور غير صحيحة!</p>' : ''}
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// معالجة تسجيل الدخول
+app.post('/login', (req, res) => {
+  const { password } = req.body;
+  if (password === DASHBOARD_PASSWORD) {
+    req.session.authenticated = true;
+    res.redirect('/');
+  } else {
+    res.redirect('/login?error=1');
+  }
+});
+
+// تسجيل الخروج
+app.get('/logout', (req, res) => {
+  req.session.destroy();
+  res.redirect('/login');
+});
+
+// الرئيسية (محمية)
+app.get('/', requireAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -49,18 +114,22 @@ app.get('/', (req, res) => {
       <title>لوحة التحكم بالتذاكر</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
-        nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
+        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
         h1 { color: #38bdf8; text-align: center; }
         .btn { display: inline-block; padding: 10px 20px; background: #0284c7; color: white; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 15px; }
+        .logout { color: #ef4444; text-decoration: none; font-weight: bold; }
       </style>
     </head>
     <body>
       <nav>
-        <a href="/">الرئيسية 🏠</a>
-        <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
+        <div class="links">
+          <a href="/">الرئيسية 🏠</a>
+          <a href="/stats">الإحصائيات 📊</a>
+          <a href="/panel">إدارة اللوحات ⚙️</a>
+        </div>
+        <a href="/logout" class="logout">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
         <h1>لوحة تحكم التذاكر 🎫</h1>
@@ -75,7 +144,8 @@ app.get('/', (req, res) => {
   `);
 });
 
-app.get('/panel', (req, res) => {
+// صفحة اللوحات (محمية)
+app.get('/panel', requireAuth, (req, res) => {
   let panelsListHTML = '';
   panelsDatabase.forEach((p, id) => {
     panelsListHTML += `
@@ -95,8 +165,8 @@ app.get('/panel', (req, res) => {
       <title>إدارة اللوحات</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
-        nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
+        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
         h1, h2 { color: #38bdf8; }
         label { display: block; margin-top: 10px; font-weight: bold; }
@@ -106,9 +176,12 @@ app.get('/panel', (req, res) => {
     </head>
     <body>
       <nav>
-        <a href="/">الرئيسية 🏠</a>
-        <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
+        <div class="links">
+          <a href="/">الرئيسية 🏠</a>
+          <a href="/stats">الإحصائيات 📊</a>
+          <a href="/panel">إدارة اللوحات ⚙️</a>
+        </div>
+        <a href="/logout" style="color:#ef4444; text-decoration:none; font-weight:bold;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
         <h1>➕ إنشاء لوحة جديدة</h1>
@@ -144,7 +217,7 @@ app.get('/panel', (req, res) => {
         </form>
 
         <hr style="margin: 30px 0; border-color: #334155;">
-        <h2>📋 اللوحات الحالية (إمكانية التعديل):</h2>
+        <h2>📋 اللوحات الحالية:</h2>
         ${panelsListHTML || '<p>لا توجد لوحات منشأة بعد.</p>'}
       </div>
     </body>
@@ -152,7 +225,8 @@ app.get('/panel', (req, res) => {
   `);
 });
 
-app.get('/edit-panel/:id', (req, res) => {
+// صفحة تعديل اللوحة (محمية)
+app.get('/edit-panel/:id', requireAuth, (req, res) => {
   const panel = panelsDatabase.get(req.params.id);
   if (!panel) return res.send('اللوحة غير موجودة');
 
@@ -209,7 +283,8 @@ app.get('/edit-panel/:id', (req, res) => {
   `);
 });
 
-app.post('/save-panel', async (req, res) => {
+// حفظ اللوحة (محمية)
+app.post('/save-panel', requireAuth, async (req, res) => {
   const data = req.body;
   panelsDatabase.set(data.panelId, data);
 
@@ -238,12 +313,8 @@ app.post('/save-panel', async (req, res) => {
   }
 });
 
-app.get('/stats', (req, res) => {
-  let adminStatsHTML = '';
-  for (const [adminId, count] of Object.entries(statsDatabase.adminsClaimCount)) {
-    adminStatsHTML += `<li>👤 الإداري (<@${adminId}> - ID: ${adminId}): <b>${count} تذكرة</b></li>`;
-  }
-
+// صفحة الإحصائيات (محمية)
+app.get('/stats', requireAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -252,23 +323,24 @@ app.get('/stats', (req, res) => {
       <title>الإحصائيات</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
-        nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
+        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
         h1, h2 { color: #38bdf8; }
       </style>
     </head>
     <body>
       <nav>
-        <a href="/">الرئيسية 🏠</a>
-        <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
+        <div class="links">
+          <a href="/">الرئيسية 🏠</a>
+          <a href="/stats">الإحصائيات 📊</a>
+          <a href="/panel">إدارة اللوحات ⚙️</a>
+        </div>
+        <a href="/logout" style="color:#ef4444; text-decoration:none; font-weight:bold;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
         <h1>📊 إحصائيات التذاكر الإجمالية</h1>
-        <h2>إجمالي التذاكر: ${statsDatabase.totalTickets}</h2>
-        <h2>استلامات الإدارة:</h2>
-        <ul>${adminStatsHTML || 'لا توجد بيانات استلام بعد.'}</ul>
+        <h2>إجمالي التذاكر التي تم فتحها: ${statsDatabase.totalTickets}</h2>
       </div>
     </body>
     </html>
@@ -278,7 +350,7 @@ app.get('/stats', (req, res) => {
 app.listen(process.env.PORT || 3000, () => console.log('🌐 خادم الويب يعمل بنجاح!'));
 
 // ==========================================
-// 3. الدوال والأوامر الأساسية للبوت
+// 3. البوت وأوامر الديسكورد
 // ==========================================
 
 async function sendLogError(title, error) {
@@ -306,9 +378,8 @@ async function sendLogError(title, error) {
 client.once('ready', async () => {
   console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
+  // تسجيل أوامر السلاش (تم إزالة claim/unclaim)
   const commands = [
-    new SlashCommandBuilder().setName('claim').setDescription('استلام التذكرة الحالية'),
-    new SlashCommandBuilder().setName('unclaim').setDescription('إلغاء استلام التذكرة'),
     new SlashCommandBuilder().setName('close').setDescription('إغلاق التذكرة الحالية'),
     new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية'),
     new SlashCommandBuilder().setName('save').setDescription('حفظ ترانسكريبت التذكرة في روم اللوق'),
@@ -389,29 +460,6 @@ client.on('messageCreate', async (message) => {
   const isHighAdmin = message.member.roles.cache.has(config.highAdminRoleId);
   const isOwner = message.author.id === ticketData.ownerId;
 
-  if (command === 'claim') {
-    if (!isAdmin && !isHighAdmin) return message.reply('❌ مخصص للإدارة فقط!');
-    if (ticketData.claimedBy) return message.reply(`❌ التذكرة مستلمة بالفعل من: <@${ticketData.claimedBy}>`);
-
-    ticketData.claimedBy = message.author.id;
-    await message.channel.setTopic(JSON.stringify(ticketData));
-    await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
-    await message.channel.permissionOverwrites.edit(message.author.id, { SendMessages: true, ViewChannel: true });
-
-    statsDatabase.adminsClaimCount[message.author.id] = (statsDatabase.adminsClaimCount[message.author.id] || 0) + 1;
-    return message.reply(`🛠️ تم استلام التذكرة بواسطة ${message.author}`);
-  }
-
-  if (command === 'unclaim') {
-    if (!isHighAdmin && !isOwner) return message.reply('❌ مخصص **للإدارة العليا** أو **صاحب التكت** فقط!');
-    if (!ticketData.claimedBy) return message.reply('❌ التذكرة غير مستلمة أساساً!');
-
-    ticketData.claimedBy = null;
-    await message.channel.setTopic(JSON.stringify(ticketData));
-    await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
-    return message.reply(`🔄 تم إلغاء استلام التذكرة بواسطة: ${message.author}`);
-  }
-
   if (command === 'close') {
     if (!isAdmin && !isHighAdmin && !isOwner) return message.reply('❌ لا تمتلك صلاحية الإغلاق!');
     await message.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
@@ -463,28 +511,6 @@ client.on('interactionCreate', async (interaction) => {
       const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
       const isOwner = interaction.user.id === ticketData.ownerId;
 
-      if (interaction.commandName === 'claim') {
-        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
-        if (ticketData.claimedBy) return interaction.reply({ content: `❌ التذكرة مستلمة بالفعل!`, ephemeral: true });
-
-        ticketData.claimedBy = interaction.user.id;
-        await interaction.channel.setTopic(JSON.stringify(ticketData));
-        await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
-        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { SendMessages: true, ViewChannel: true });
-
-        return interaction.reply({ content: `🛠️ تم استلام التذكرة بواسطة ${interaction.user}` });
-      }
-
-      if (interaction.commandName === 'unclaim') {
-        if (!isHighAdmin && !isOwner) return interaction.reply({ content: '❌ مخصص للإدارة العليا أو صاحب التكت!', ephemeral: true });
-        if (!ticketData.claimedBy) return interaction.reply({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
-
-        ticketData.claimedBy = null;
-        await interaction.channel.setTopic(JSON.stringify(ticketData));
-        await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
-        return interaction.reply({ content: `🔄 تم إلغاء استلام التذكرة بواسطة: ${interaction.user}` });
-      }
-
       if (interaction.commandName === 'close') {
         if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك الصلاحية!', ephemeral: true });
         await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
@@ -532,19 +558,16 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       statsDatabase.totalTickets += 1;
-      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: panelId, claimedBy: null }));
+      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: panelId }));
 
       const welcomeEmbed = new EmbedBuilder()
         .setTitle(`تذكرة دعم فني جديدة`)
         .setDescription(`${config.welcomeMessage}\n\n👤 **صاحب التذكرة:** ${interaction.user}`)
         .setColor(0x0284c7);
 
+      // أزرار التكت بعد إلغاء الاستلام وإلغاء الاستلام
       const buttonsRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_claim').setLabel('استلام').setEmoji('🛠️').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('ticket_unclaim').setLabel('إلغاء استلام').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('ticket_add_member').setLabel('إضافة شخص').setEmoji('➕').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('ticket_remove_member').setLabel('طرد شخص').setEmoji('➖').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger)
       );
 
       await ticketChannel.send({ 
@@ -567,31 +590,6 @@ client.on('interactionCreate', async (interaction) => {
     const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
     const isOwner = interaction.user.id === ticketData.ownerId;
 
-    if (interaction.isButton() && interaction.customId === 'ticket_claim') {
-      if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
-      if (ticketData.claimedBy) return interaction.reply({ content: `❌ التذكرة مستلمة بالفعل!`, ephemeral: true });
-
-      ticketData.claimedBy = interaction.user.id;
-      await interaction.channel.setTopic(JSON.stringify(ticketData));
-
-      await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
-      await interaction.channel.permissionOverwrites.edit(interaction.user.id, { SendMessages: true, ViewChannel: true });
-
-      statsDatabase.adminsClaimCount[interaction.user.id] = (statsDatabase.adminsClaimCount[interaction.user.id] || 0) + 1;
-      return interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🛠️ تم استلام التذكرة بواسطة ${interaction.user}`).setColor(0x22c55e)] });
-    }
-
-    if (interaction.isButton() && interaction.customId === 'ticket_unclaim') {
-      if (!isHighAdmin && !isOwner) return interaction.reply({ content: '❌ مخصص للإدارة العليا أو صاحب التكت!', ephemeral: true });
-      if (!ticketData.claimedBy) return interaction.reply({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
-
-      ticketData.claimedBy = null;
-      await interaction.channel.setTopic(JSON.stringify(ticketData));
-      await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
-
-      return interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🔄 تم إلغاء استلام التذكرة بواسطة: ${interaction.user}`).setColor(0xeab308)] });
-    }
-
     if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
       if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
 
@@ -606,9 +604,8 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.message.delete().catch(() => {});
     }
 
-    // إصلاح استجابة إغلاق التكت الفورية لمنع خطأ Response Timeout
     if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
-      await interaction.deferUpdate(); // تأكيد الاستجابة فوراً
+      await interaction.deferUpdate();
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
       const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
