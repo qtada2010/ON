@@ -10,31 +10,31 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  AttachmentBuilder
+  REST,
+  Routes,
+  SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
 
 // ==========================================
-// 1. خادم الويب والموقع الإلكتروني (Dashboard)
+// 1. خادم الويب ولوحة التحكم (Dashboard)
 // ==========================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const panelsDatabase = new Map();
-const statsDatabase = {
-  totalTickets: 0,
-  adminsClaimCount: {}
-};
+const panelsDatabase = new Map(); // تخزين اللوحات { panelId: data }
+const statsDatabase = { totalTickets: 0, adminsClaimCount: {} };
+let ownerLogChannelId = null; // روم لوق الأخطاء والمالك
 
-// الصفحة الرئيسية بالموقع
+// الصفحة الرئيسية
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>لوحة تحكم التذاكر المتقدمة</title>
+      <title>لوحة التحكم بالتذاكر</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
         nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
@@ -48,14 +48,14 @@ app.get('/', (req, res) => {
       <nav>
         <a href="/">الرئيسية 🏠</a>
         <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
+        <a href="/panel">إدارة واللوحات ⚙️</a>
       </nav>
       <div class="container">
-        <h1>مرحباً بك في نظام التذاكر الاحترافي 🎫</h1>
-        <p style="text-align:center; font-size: 18px; color: #94a3b8;">يمكنك التحكم باللوحات ومعاينة إحصائيات الإدارة والتذاكر بكل سهولة من هنا.</p>
+        <h1>لوحة تحكم التذاكر 🎫</h1>
+        <p style="text-align:center; color: #94a3b8;">يمكنك التحكم الكامل وتعديل اللوحات ومتابعة النظام من هنا.</p>
         <div style="text-align:center; margin-top: 30px;">
-          <a href="/panel" class="btn">إنشاء لوحة تذاكر جديدة 🚀</a>
-          <a href="/stats" class="btn" style="background:#059669;">عرض الإحصائيات 📊</a>
+          <a href="/panel" class="btn">إنشاء / تعديل اللوحات 🛠️</a>
+          <a href="/stats" class="btn" style="background:#059669;">الإحصائيات 📊</a>
         </div>
       </div>
     </body>
@@ -63,78 +63,46 @@ app.get('/', (req, res) => {
   `);
 });
 
-// صفحة الإحصائيات
-app.get('/stats', (req, res) => {
-  let adminStatsHTML = '';
-  for (const [adminId, count] of Object.entries(statsDatabase.adminsClaimCount)) {
-    adminStatsHTML += `<li>👤 الإداري (<@${adminId}> - ID: ${adminId}): <b>${count} تذكرة</b></li>`;
-  }
-
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>إحصائيات التذاكر</title>
-      <style>
-        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
-        nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
-        .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
-        h1, h2 { color: #38bdf8; }
-        .card { background: #0f172a; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #334155; }
-      </style>
-    </head>
-    <body>
-      <nav>
-        <a href="/">الرئيسية 🏠</a>
-        <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
-      </nav>
-      <div class="container">
-        <h1>📊 إحصائيات النظام</h1>
-        <div class="card">
-          <h2>إجمالي التذاكر المفتوحة: ${statsDatabase.totalTickets}</h2>
-        </div>
-        <div class="card">
-          <h2>أداء الإداريين في استلام التذاكر:</h2>
-          <ul>${adminStatsHTML || 'لا توجد إحصائيات استلام بعد.'}</ul>
-        </div>
-      </div>
-    </body>
-    </html>
-  `);
-});
-
-// صفحة إنشاء اللوحة
+// صفحة اللوحات (إنشاء وتعديل)
 app.get('/panel', (req, res) => {
+  let panelsListHTML = '';
+  panelsDatabase.forEach((p, id) => {
+    panelsListHTML += `
+      <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
+        <h3>📌 المعرف: ${id} - ${p.title}</h3>
+        <p>روم اللوحة: ${p.channelId} | رتبة الإدارة: ${p.adminRoleId}</p>
+        <a href="/edit-panel/${id}" style="color:#38bdf8; font-weight:bold;">✏️ تعديل هذه اللوحة</a>
+      </div>
+    `;
+  });
+
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>إعداد اللوحة</title>
+      <title>إدارة اللوحات</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
         nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
         nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
         .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
-        h1 { color: #38bdf8; text-align: center; }
-        label { display: block; margin-top: 15px; font-weight: bold; }
-        input, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        button { margin-top: 25px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        h1, h2 { color: #38bdf8; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input, textarea { width: 100%; padding: 8px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        button { margin-top: 20px; width: 100%; padding: 10px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
       </style>
     </head>
     <body>
       <nav>
         <a href="/">الرئيسية 🏠</a>
         <a href="/stats">الإحصائيات 📊</a>
-        <a href="/panel">إدارة اللوحات ⚙️</a>
+        <a href="/panel">إدارة واللوحات ⚙️</a>
       </nav>
       <div class="container">
-        <h1>🛠️ إنشاء لوحة تذاكر</h1>
-        <form action="/create-panel" method="POST">
-          <label>معرف اللوحة (Panel ID):</label>
+        <h1>➕ إنشاء لوحة جديدة</h1>
+        <form action="/save-panel" method="POST">
+          <label>معرف اللوحة الفريد (Panel ID):</label>
           <input type="text" name="panelId" placeholder="support_1" required>
 
           <label>آيدي روم اللوحة:</label>
@@ -161,7 +129,69 @@ app.get('/panel', (req, res) => {
           <label>رسالة الترحيب بالتكت:</label>
           <textarea name="welcomeMessage" rows="2" required>مرحباً بك! يرجى توضيح استفسارك وسيقوم فريق الدعم برفقك.</textarea>
 
-          <button type="submit">إرسال اللوحة للسيرفر 🚀</button>
+          <button type="submit">حفظ وإرسال اللوحة للسيرفر 🚀</button>
+        </form>
+
+        <hr style="margin: 30px 0; border-color: #334155;">
+        <h2>📋 اللوحات الحالية (امكانية التعديل):</h2>
+        ${panelsListHTML || '<p>لا توجد لوحات منشأة بعد.</p>'}
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// صفحة تعديل لوحة قائمة
+app.get('/edit-panel/:id', (req, res) => {
+  const panel = panelsDatabase.get(req.params.id);
+  if (!panel) return res.send('اللوحة غير موجودة');
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>تعديل اللوحة ${panel.panelId}</title>
+      <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:20px; }
+        .container { max-width: 800px; margin: auto; background: #1e293b; padding: 30px; border-radius: 12px; }
+        h1 { color: #38bdf8; }
+        label { display: block; margin-top: 10px; }
+        input, textarea { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        button { margin-top: 20px; width: 100%; padding: 10px; background: #eab308; color: black; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>✏️ تعديل اللوحة: ${panel.panelId}</h1>
+        <form action="/save-panel" method="POST">
+          <input type="hidden" name="panelId" value="${panel.panelId}">
+
+          <label>آيدي روم اللوحة:</label>
+          <input type="text" name="channelId" value="${panel.channelId}" required>
+
+          <label>آيدي كاتيجوري التذاكر:</label>
+          <input type="text" name="categoryId" value="${panel.categoryId}" required>
+
+          <label>آيدي رتبة الإدارة العادية:</label>
+          <input type="text" name="adminRoleId" value="${panel.adminRoleId}" required>
+
+          <label>آيدي رتبة الإدارة العليا:</label>
+          <input type="text" name="highAdminRoleId" value="${panel.highAdminRoleId}" required>
+
+          <label>آيدي روم اللوق:</label>
+          <input type="text" name="logChannelId" value="${panel.logChannelId}" required>
+
+          <label>عنوان اللوحة:</label>
+          <input type="text" name="title" value="${panel.title}" required>
+
+          <label>وصف اللوحة:</label>
+          <textarea name="description" rows="2" required>${panel.description}</textarea>
+
+          <label>رسالة الترحيب بالتكت:</label>
+          <textarea name="welcomeMessage" rows="2" required>${panel.welcomeMessage}</textarea>
+
+          <button type="submit">حفظ التحديثات بإعادة الإرسال 🔄</button>
         </form>
       </div>
     </body>
@@ -169,8 +199,8 @@ app.get('/panel', (req, res) => {
   `);
 });
 
-// معالجة إنشاء اللوحة
-app.post('/create-panel', async (req, res) => {
+// حفظ وتحديث اللوحة
+app.post('/save-panel', async (req, res) => {
   const data = req.body;
   panelsDatabase.set(data.panelId, data);
 
@@ -191,17 +221,56 @@ app.post('/create-panel', async (req, res) => {
       );
 
       await channel.send({ embeds: [embed], components: [row] });
-      return res.send('<h2>✅ تم إرسال اللوحة بنجاح!</h2><a href="/panel">العودة</a>');
+      return res.send('<h2>✅ تم حفظ اللوحة وإرسالها/تحديثها بالسيرفر بنجاح!</h2><a href="/panel">العودة للوحة التحكم</a>');
     }
   } catch (err) {
-    return res.status(500).send('<h2>❌ خطأ في الإرسال!</h2><a href="/panel">العودة</a>');
+    sendLogError('خطأ أثناء حفظ/تحديث اللوحة:', err);
+    return res.status(500).send('<h2>❌ خطأ في الإرسال! تأكد من صحة الآيديهات.</h2><a href="/panel">العودة</a>');
   }
+});
+
+// صفحة الإحصائيات
+app.get('/stats', (req, res) => {
+  let adminStatsHTML = '';
+  for (const [adminId, count] of Object.entries(statsDatabase.adminsClaimCount)) {
+    adminStatsHTML += `<li>👤 الإداري (<@${adminId}> - ID: ${adminId}): <b>${count} تذكرة</b></li>`;
+  }
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>الإحصائيات</title>
+      <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; gap: 20px; border-bottom: 1px solid #334155; }
+        nav a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
+        h1, h2 { color: #38bdf8; }
+      </style>
+    </head>
+    <body>
+      <nav>
+        <a href="/">الرئيسية 🏠</a>
+        <a href="/stats">الإحصائيات 📊</a>
+        <a href="/panel">إدارة واللوحات ⚙️</a>
+      </nav>
+      <div class="container">
+        <h1>📊 إحصائيات التذاكر الإجمالية</h1>
+        <h2>إجمالي التذاكر: ${statsDatabase.totalTickets}</h2>
+        <h2>استلامات الإدارة:</h2>
+        <ul>${adminStatsHTML || 'لا توجد بيانات استلام بعد.'}</ul>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 app.listen(process.env.PORT || 3000, () => console.log('🌐 خادم الويب يعمل بنجاح!'));
 
 // ==========================================
-// 2. إعداد وإدارة بوت الديسكورد
+// 2. إعداد ديسكورد والأوامر الشاملة
 // ==========================================
 const client = new Client({
   intents: [
@@ -213,32 +282,79 @@ const client = new Client({
 
 const PREFIX = '!';
 
-client.once('ready', () => {
-  console.log(`🤖 البوت يعمل باسم: ${client.user.tag}`);
-});
-
-// دالة جلب معلومات التكت من موضوع القناة (Topic)
-async function getTicketInfo(channel) {
-  if (!channel.topic) return null;
-  try {
-    return JSON.parse(channel.topic);
-  } catch (e) {
-    return null;
+// دالة إرسال السجلات والأخطاء لروم المالك
+async function sendLogError(title, error) {
+  console.error(title, error);
+  if (ownerLogChannelId) {
+    try {
+      const channel = await client.channels.fetch(ownerLogChannelId);
+      if (channel) {
+        const errEmbed = new EmbedBuilder()
+          .setTitle(`⚠️ تنبيه خطأ في البوت`)
+          .addFields(
+            { name: 'الوصف:', value: `${title}` },
+            { name: 'التفاصيل:', value: `\`\`\`js\n${error.message || error}\n\`\`\`` }
+          )
+          .setColor(0xef4444)
+          .setTimestamp();
+        await channel.send({ embeds: [errEmbed] });
+      }
+    } catch (e) {
+      console.error('تعذر إرسال اللوق لروم المالك:', e);
+    }
   }
 }
 
+client.once('ready', async () => {
+  console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
+
+  // تسجيل أوامر السلاش كوماندر (/) تلقائياً
+  const commands = [
+    new SlashCommandBuilder().setName('claim').setDescription('استلام التذكرة الحالية'),
+    new SlashCommandBuilder().setName('unclaim').setDescription('إلغاء استلام التذكرة (للإدارة العليا أو صاحب التكت)'),
+    new SlashCommandBuilder().setName('close').setDescription('إغلاق التذكرة الحالية'),
+    new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية'),
+    new SlashCommandBuilder().setName('logowner').setDescription('تحديد روم لوق أخطاء البوت للمالك').addChannelOption(o => o.setName('channel').setDescription('القناة').setRequired(true))
+  ];
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  try {
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ تم تسجيل أوامر السلاش (/) بنجاح!');
+  } catch (e) {
+    sendLogError('خطأ أثناء تسجيل أوامر السلاش:', e);
+  }
+});
+
+async function getTicketInfo(channel) {
+  if (!channel.topic) return null;
+  try { return JSON.parse(channel.topic); } catch (e) { return null; }
+}
+
 // --------------------------------------------------
-// التعامل مع أوامر الشات البريفكس (!)
+// معالجة أوامر البريفكس (!) والسلاش (/)
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+
+  // أمر تحديد لوق أخطاء البوت للمالك (!logowner)
+  if (message.content.startsWith(`${PREFIX}logowner`)) {
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('❌ هذا الأمر يتطلب صلاحيات **Administrator**!');
+    }
+
+    const channel = message.mentions.channels.first() || message.channel;
+    ownerLogChannelId = channel.id;
+    return message.reply(`✅ تم تحديد ${channel} كقناة لوق الأخطاء الخاصة بمالك البوت بنجاح!`);
+  }
+
   if (!message.content.startsWith(PREFIX)) return;
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
   const ticketData = await getTicketInfo(message.channel);
-  if (!ticketData) return; // ليس روم تكت
+  if (!ticketData) return;
 
   const config = panelsDatabase.get(ticketData.panelId);
   if (!config) return;
@@ -247,40 +363,29 @@ client.on('messageCreate', async (message) => {
   const isHighAdmin = message.member.roles.cache.has(config.highAdminRoleId);
   const isOwner = message.author.id === ticketData.ownerId;
 
-  // أمر !claim
   if (command === 'claim') {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ مخصص للإدارة فقط!');
-    if (ticketData.claimedBy) return message.reply(`❌ التذكرة مستلمة بالفعل بواسطة: <@${ticketData.claimedBy}>`);
+    if (ticketData.claimedBy) return message.reply(`❌ التذكرة مستلمة بالفعل من: <@${ticketData.claimedBy}>`);
 
     ticketData.claimedBy = message.author.id;
     await message.channel.setTopic(JSON.stringify(ticketData));
-
-    // منع الإدارة العادية من الكتابة وإبقاء المستلم
     await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
     await message.channel.permissionOverwrites.edit(message.author.id, { SendMessages: true, ViewChannel: true });
 
     statsDatabase.adminsClaimCount[message.author.id] = (statsDatabase.adminsClaimCount[message.author.id] || 0) + 1;
-
     return message.reply(`🛠️ تم استلام التذكرة بواسطة ${message.author}`);
   }
 
-  // أمر !unclaim (للإدارة العليا أو صاحب التكت)
   if (command === 'unclaim') {
-    if (!isHighAdmin && !isOwner) {
-      return message.reply('❌ إلغاء الاستلام مخصص **للإدارة العليا** أو **صاحب التكت** فقط!');
-    }
+    if (!isHighAdmin && !isOwner) return message.reply('❌ مخصص **للإدارة العليا** أو **صاحب التكت** فقط!');
     if (!ticketData.claimedBy) return message.reply('❌ التذكرة غير مستلمة أساساً!');
 
     ticketData.claimedBy = null;
     await message.channel.setTopic(JSON.stringify(ticketData));
-
-    // إعادة صلاحيات الكتابة للإدارة العادية
     await message.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
-
     return message.reply(`🔄 تم إلغاء استلام التذكرة بواسطة: ${message.author}`);
   }
 
-  // أمر !close
   if (command === 'close') {
     if (!isAdmin && !isHighAdmin && !isOwner) return message.reply('❌ لا تمتلك صلاحية الإغلاق!');
     await message.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
@@ -290,49 +395,91 @@ client.on('messageCreate', async (message) => {
       new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
     );
-
     return message.channel.send({ embeds: [closedEmbed], components: [closedRow] });
   }
 
-  // أمر !delete
   if (command === 'delete') {
     if (!isHighAdmin) return message.reply('❌ مخصص للإدارة العليا فقط!');
     await message.reply('🗑️ جاري حذف التذكرة...');
     setTimeout(() => message.channel.delete().catch(() => {}), 3000);
   }
-
-  // أمر !add
-  if (command === 'add') {
-    const user = message.mentions.users.first() || await client.users.fetch(args[0]).catch(() => null);
-    if (!user) return message.reply('❌ يرجى منشن الشخص أو كتابة الـ ID الخاص به.');
-
-    await message.channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true });
-    return message.reply(`✅ تم إضافة ${user} للتذكرة.`);
-  }
-
-  // أمر !remove
-  if (command === 'remove') {
-    const user = message.mentions.users.first() || await client.users.fetch(args[0]).catch(() => null);
-    if (!user) return message.reply('❌ يرجى منشن الشخص أو كتابة الـ ID الخاص به.');
-
-    await message.channel.permissionOverwrites.delete(user.id).catch(() => {});
-    return message.reply(`⛔ تم إزالة ${user} من التذكرة.`);
-  }
 });
 
 // --------------------------------------------------
-// التفاعل مع أزرار التذاكر
+// التفاعل مع الأزرار وأوامر السلاش (/)
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
-  // فتح التذكرة
-  if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
-    await interaction.deferReply({ ephemeral: true });
+  try {
+    // 1. التعامل مع أوامر السلاش (/)
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'logowner') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ content: '❌ يتطلب صلاحية Administrator!', ephemeral: true });
+        }
+        const ch = interaction.options.getChannel('channel');
+        ownerLogChannelId = ch.id;
+        return interaction.reply({ content: `✅ تم ضبط قناة اللوق إلى: ${ch}`, ephemeral: true });
+      }
 
-    const panelId = interaction.customId.replace('open_ticket_', '');
-    const config = panelsDatabase.get(panelId);
-    if (!config) return interaction.editReply({ content: '❌ لم يتم العثور على اللوحة!' });
+      const ticketData = await getTicketInfo(interaction.channel);
+      if (!ticketData) return interaction.reply({ content: '❌ هذا الأمر يشتغل داخل التذاكر فقط!', ephemeral: true });
 
-    try {
+      const config = panelsDatabase.get(ticketData.panelId);
+      if (!config) return interaction.reply({ content: '❌ إعدادات اللوحة غير متوفرة!', ephemeral: true });
+
+      const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
+      const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
+      const isOwner = interaction.user.id === ticketData.ownerId;
+
+      if (interaction.commandName === 'claim') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+        if (ticketData.claimedBy) return interaction.reply({ content: `❌ التذكرة مستلمة بالفعل!`, ephemeral: true });
+
+        ticketData.claimedBy = interaction.user.id;
+        await interaction.channel.setTopic(JSON.stringify(ticketData));
+        await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
+        await interaction.channel.permissionOverwrites.edit(interaction.user.id, { SendMessages: true, ViewChannel: true });
+
+        return interaction.reply({ content: `🛠️ تم استلام التذكرة بواسطة ${interaction.user}` });
+      }
+
+      if (interaction.commandName === 'unclaim') {
+        if (!isHighAdmin && !isOwner) return interaction.reply({ content: '❌ مخصص للإدارة العليا أو صاحب التكت!', ephemeral: true });
+        if (!ticketData.claimedBy) return interaction.reply({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
+
+        ticketData.claimedBy = null;
+        await interaction.channel.setTopic(JSON.stringify(ticketData));
+        await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
+        return interaction.reply({ content: `🔄 تم إلغاء استلام التذكرة!` });
+      }
+
+      if (interaction.commandName === 'close') {
+        if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك الصلاحية!', ephemeral: true });
+        await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
+
+        const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
+        const closedRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
+        );
+        return interaction.reply({ embeds: [closedEmbed], components: [closedRow] });
+      }
+
+      if (interaction.commandName === 'delete') {
+        if (!isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة العليا فقط!', ephemeral: true });
+        await interaction.reply({ content: '🗑️ جاري الحذف خلال 3 ثوانٍ...' });
+        setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
+      }
+    }
+
+    // 2. التعامل مع الأزرار ومستمعات التكت
+    if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
+      await interaction.deferReply({ ephemeral: true });
+
+      const panelId = interaction.customId.replace('open_ticket_', '');
+      const config = panelsDatabase.get(panelId);
+      if (!config) return interaction.editReply({ content: '❌ لم يتم العثور على اللوحة!' });
+
       const ticketChannel = await interaction.guild.channels.create({
         name: `ticket-${interaction.user.username}`,
         type: ChannelType.GuildText,
@@ -346,12 +493,7 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       statsDatabase.totalTickets += 1;
-
-      await ticketChannel.setTopic(JSON.stringify({
-        ownerId: interaction.user.id,
-        panelId: panelId,
-        claimedBy: null
-      }));
+      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: panelId, claimedBy: null }));
 
       const welcomeEmbed = new EmbedBuilder()
         .setTitle(`تذكرة دعم فني جديدة`)
@@ -372,123 +514,88 @@ client.on('interactionCreate', async (interaction) => {
         components: [buttonsRow] 
       });
 
-      await interaction.editReply({ content: `✅ تم إنشاء تذكرتك بنجاح: ${ticketChannel}` });
-    } catch (err) {
-      await interaction.editReply({ content: '❌ حدث خطأ أثناء إنشاء التذكرة.' });
+      return interaction.editReply({ content: `✅ تم إنشاء التذكرة بنجاح: ${ticketChannel}` });
     }
-  }
 
-  if (!interaction.guild || !interaction.channel.topic) return;
+    if (!interaction.guild || !interaction.channel.topic) return;
+    const ticketData = await getTicketInfo(interaction.channel);
+    if (!ticketData) return;
 
-  const ticketData = await getTicketInfo(interaction.channel);
-  if (!ticketData) return;
+    const config = panelsDatabase.get(ticketData.panelId);
+    if (!config) return;
 
-  const config = panelsDatabase.get(ticketData.panelId);
-  if (!config) return;
+    const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
+    const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
+    const isOwner = interaction.user.id === ticketData.ownerId;
 
-  const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
-  const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
-  const isOwner = interaction.user.id === ticketData.ownerId;
+    if (interaction.isButton() && interaction.customId === 'ticket_claim') {
+      await interaction.deferUpdate();
+      if (!isAdmin && !isHighAdmin) return interaction.followUp({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+      if (ticketData.claimedBy) return interaction.followUp({ content: `❌ التذكرة مستلمة بالفعل!`, ephemeral: true });
 
-  // زر استلام (Claim)
-  if (interaction.isButton() && interaction.customId === 'ticket_claim') {
-    if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
-    if (ticketData.claimedBy) return interaction.reply({ content: `❌ التذكرة مستلمة بالفعل بواسطة: <@${ticketData.claimedBy}>`, ephemeral: true });
+      ticketData.claimedBy = interaction.user.id;
+      await interaction.channel.setTopic(JSON.stringify(ticketData));
 
-    ticketData.claimedBy = interaction.user.id;
-    await interaction.channel.setTopic(JSON.stringify(ticketData));
+      await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
+      await interaction.channel.permissionOverwrites.edit(interaction.user.id, { SendMessages: true, ViewChannel: true });
 
-    // منع باقي الإدارة من الكتابة
-    await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: false });
-    await interaction.channel.permissionOverwrites.edit(interaction.user.id, { SendMessages: true, ViewChannel: true });
-
-    statsDatabase.adminsClaimCount[interaction.user.id] = (statsDatabase.adminsClaimCount[interaction.user.id] || 0) + 1;
-
-    await interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🛠️ تم استلام التذكرة بواسطة ${interaction.user}`).setColor(0x22c55e)] });
-  }
-
-  // زر إلغاء الاستلام (Unclaim) - للإدارة العليا أو صاحب التكت
-  if (interaction.isButton() && interaction.customId === 'ticket_unclaim') {
-    if (!isHighAdmin && !isOwner) {
-      return interaction.reply({ content: '❌ إلغاء الاستلام مخصص **للإدارة العليا** أو **صاحب التكت** فقط!', ephemeral: true });
+      statsDatabase.adminsClaimCount[interaction.user.id] = (statsDatabase.adminsClaimCount[interaction.user.id] || 0) + 1;
+      return interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`🛠️ تم استلام التذكرة بواسطة ${interaction.user}`).setColor(0x22c55e)] });
     }
-    if (!ticketData.claimedBy) return interaction.reply({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
 
-    ticketData.claimedBy = null;
-    await interaction.channel.setTopic(JSON.stringify(ticketData));
+    if (interaction.isButton() && interaction.customId === 'ticket_unclaim') {
+      await interaction.deferUpdate();
+      if (!isHighAdmin && !isOwner) return interaction.followUp({ content: '❌ مخصص للإدارة العليا أو صاحب التكت!', ephemeral: true });
+      if (!ticketData.claimedBy) return interaction.followUp({ content: '❌ التذكرة غير مستلمة أساساً!', ephemeral: true });
 
-    // السماح للإدارة بالكتابة مجدداً
-    await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
+      ticketData.claimedBy = null;
+      await interaction.channel.setTopic(JSON.stringify(ticketData));
+      await interaction.channel.permissionOverwrites.edit(config.adminRoleId, { SendMessages: true });
 
-    await interaction.reply({ embeds: [new EmbedBuilder().setDescription(`🔄 تم إلغاء استلام التذكرة بواسطة: ${interaction.user}`).setColor(0xeab308)] });
-  }
+      return interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`🔄 تم إلغاء استلام التذكرة بواسطة: ${interaction.user}`).setColor(0xeab308)] });
+    }
 
-  // طلب وتأكيد الإغلاق
-  if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
-    if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
+    if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
+      if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
 
-    const confirmRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ticket_confirm_close').setLabel('تأكيد الإغلاق').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('ticket_cancel_close').setLabel('إلغاء').setStyle(ButtonStyle.Secondary)
-    );
+      const confirmRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_confirm_close').setLabel('تأكيد الإغلاق').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('ticket_cancel_close').setLabel('إلغاء').setStyle(ButtonStyle.Secondary)
+      );
+      return interaction.reply({ content: '⚠️ هل أنت أكتد من رغبتك في إغلاق هذه التذكرة؟', components: [confirmRow] });
+    }
 
-    await interaction.reply({ content: '⚠️ هل أنت أكتد من رغبتك في إغلاق هذه التذكرة؟', components: [confirmRow] });
-  }
+    if (interaction.isButton() && interaction.customId === 'ticket_cancel_close') {
+      return interaction.message.delete().catch(() => {});
+    }
 
-  if (interaction.isButton() && interaction.customId === 'ticket_cancel_close') {
-    await interaction.message.delete().catch(() => {});
-  }
+    if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
+      await interaction.deferUpdate();
+      await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
-  if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
-    await interaction.deferUpdate();
-    await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
+      const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
+      const closedRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
+      );
 
-    const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
-    const closedRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
-    );
+      return interaction.channel.send({ embeds: [closedEmbed], components: [closedRow] });
+    }
 
-    await interaction.channel.send({ embeds: [closedEmbed], components: [closedRow] });
-  }
+    if (interaction.isButton() && interaction.customId === 'ticket_reopen') {
+      await interaction.deferUpdate();
+      await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: true });
+      return interaction.channel.send({ content: `🔓 تم إعادة فتح التذكرة بواسطة ${interaction.user}` });
+    }
 
-  // إعادة الفتح والحذف
-  if (interaction.isButton() && interaction.customId === 'ticket_reopen') {
-    await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: true });
-    await interaction.reply({ content: `🔓 تم إعادة فتح التذكرة بواسطة ${interaction.user}` });
-  }
+    if (interaction.isButton() && interaction.customId === 'ticket_delete') {
+      if (!isHighAdmin && !isAdmin) return interaction.reply({ content: '❌ لا تمتلك صلاحية الحذف!', ephemeral: true });
+      await interaction.reply({ content: '🗑️ سيتم حذف التذكرة خلال 3 ثوانٍ...' });
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
+    }
 
-  if (interaction.isButton() && interaction.customId === 'ticket_delete') {
-    if (!isHighAdmin && !isAdmin) return interaction.reply({ content: '❌ لا تمتلك صلاحية الحذف!', ephemeral: true });
-    await interaction.reply({ content: '🗑️ سيتم حذف التذكرة خلال 3 ثوانٍ...' });
-    setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
-  }
-
-  // إضافة/طرد الأشخاص عبر المودال
-  if (interaction.isButton() && interaction.customId === 'ticket_add_member') {
-    const modal = new ModalBuilder().setCustomId('modal_add_member').setTitle('إضافة شخص للتذكرة');
-    const input = new TextInputBuilder().setCustomId('user_id').setLabel('آيدي العضو').setStyle(TextInputStyle.Short).setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
-  }
-
-  if (interaction.isButton() && interaction.customId === 'ticket_remove_member') {
-    const modal = new ModalBuilder().setCustomId('modal_remove_member').setTitle('طرد شخص من التذكرة');
-    const input = new TextInputBuilder().setCustomId('user_id').setLabel('آيدي العضو').setStyle(TextInputStyle.Short).setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId === 'modal_add_member') {
-    const userId = interaction.fields.getTextInputValue('user_id');
-    await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: true, SendMessages: true });
-    await interaction.reply({ content: `✅ تم إضافة العضو <@${userId}> إلى التذكرة.` });
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId === 'modal_remove_member') {
-    const userId = interaction.fields.getTextInputValue('user_id');
-    await interaction.channel.permissionOverwrites.delete(userId).catch(() => {});
-    await interaction.reply({ content: `⛔ تم إزالة العضو <@${userId}> من التذكرة.` });
+  } catch (err) {
+    sendLogError('خطأ غير متوقع أثناء معالجة التفاعل:', err);
   }
 });
 
