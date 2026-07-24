@@ -12,10 +12,54 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
+const mongoose = require('mongoose');
 const discordTranscripts = require('discord-html-transcripts');
 
 // ==========================================
-// 1. إنشاء العميل (Client)
+// 1. الاتصال بقاعدة البيانات MongoDB
+// ==========================================
+const MONGO_URI = process.env.MONGO_URI;
+
+if (MONGO_URI) {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('🍃 تم الاتصال بقاعدة بيانات MongoDB بنجاح!'))
+    .catch(err => console.error('❌ خطأ في الاتصال بـ MongoDB:', err));
+} else {
+  console.warn('⚠️ تحذير: لم يتم إدخال متغير MONGO_URI في البيئة!');
+}
+
+// تعريف نماذج البيانات (Mongoose Schemas)
+const panelSchema = new mongoose.Schema({
+  panelId: { type: String, required: true, unique: true },
+  channelId: String,
+  categoryId: String,
+  adminRoleId: String,
+  highAdminRoleId: String,
+  logChannelId: String,
+  title: String,
+  description: String,
+  welcomeMessage: String
+});
+
+const permissionSchema = new mongoose.Schema({
+  key: { type: String, default: 'main_permissions', unique: true },
+  allCommandsRoleId: { type: String, default: '' },
+  taxRoleId: { type: String, default: '' },
+  comeRoleId: { type: String, default: '' },
+  sayRoleId: { type: String, default: '' }
+});
+
+const statSchema = new mongoose.Schema({
+  key: { type: String, default: 'main_stats', unique: true },
+  totalTickets: { type: Number, default: 0 }
+});
+
+const PanelModel = mongoose.model('Panel', panelSchema);
+const PermissionModel = mongoose.model('Permission', permissionSchema);
+const StatModel = mongoose.model('Stat', statSchema);
+
+// ==========================================
+// 2. إنشاء عميل ديسكورد (Discord Client)
 // ==========================================
 const client = new Client({
   intents: [
@@ -28,27 +72,16 @@ const client = new Client({
 
 const PREFIX = '!';
 const ADMIN_PREFIX = '$';
-
-const panelsDatabase = new Map();
-const statsDatabase = { totalTickets: 0 };
 let ownerLogChannelId = null;
 
-// قاعدة بيانات صلاحيات الأوامر الإدارية
-const adminCmdPermissions = {
-  allCommandsRoleId: '',
-  taxRoleId: '',
-  comeRoleId: '',
-  sayRoleId: ''
-};
-
 // ==========================================
-// 2. خادم الويب ولوحة التحكم
+// 3. خادم الويب ولوحة التحكم (Express)
 // ==========================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const DASHBOARD_PASSWORD = 'QTADA@2010';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'QTADA@2010';
 
 function requireAuth(req, res, next) {
   const authHeader = req.headers.cookie || '';
@@ -133,7 +166,7 @@ app.get('/', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>لوحة تحكم البوت الشاملة 🎫</h1>
-        <p style="text-align:center; color: #94a3b8;">يمكنك التحكم بالتذاكر والأوامر الإدارية والصلاحيات من هنا بسهولة.</p>
+        <p style="text-align:center; color: #94a3b8;">جميع البيانات تُحفظ دائمًا على قاعدة بيانات MongoDB ولن تضيع إطلاقًا عند إعادة التشغيل.</p>
         <div style="text-align:center; margin-top: 30px;">
           <a href="/panel" class="btn">إدارة لوحات التذاكر 🛠️</a>
           <a href="/admin-commands" class="btn" style="background:#8b5cf6;">صلاحيات الأوامر الإدارية 🛡️</a>
@@ -145,7 +178,9 @@ app.get('/', requireAuth, (req, res) => {
   `);
 });
 
-app.get('/admin-commands', requireAuth, (req, res) => {
+app.get('/admin-commands', requireAuth, async (req, res) => {
+  let perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
+
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -157,7 +192,7 @@ app.get('/admin-commands', requireAuth, (req, res) => {
         nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
         nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
-        h1, h2 { color: #38bdf8; }
+        h1 { color: #38bdf8; }
         label { display: block; margin-top: 15px; font-weight: bold; }
         input { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
         button { margin-top: 25px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
@@ -177,16 +212,16 @@ app.get('/admin-commands', requireAuth, (req, res) => {
         <h1>🛡️ التحكم في صلاحيات الأوامر الإدارية ($)</h1>
         <form action="/save-admin-commands" method="POST">
           <label>⭐ آيدي رتبة الإدارة العامة (تستطيع استخدام كل الأوامر):</label>
-          <input type="text" name="allCommandsRoleId" value="${adminCmdPermissions.allCommandsRoleId}" placeholder="أدخل ID الرتبة الشاملة">
+          <input type="text" name="allCommandsRoleId" value="${perms.allCommandsRoleId || ''}" placeholder="أدخل ID الرتبة الشاملة">
 
           <label>💰 آيدي الرتبة المسموح لها باستخدام امر $tax:</label>
-          <input type="text" name="taxRoleId" value="${adminCmdPermissions.taxRoleId}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="taxRoleId" value="${perms.taxRoleId || ''}" placeholder="أدخل ID الرتبة">
 
           <label>📢 آيدي الرتبة المسموح لها باستخدام امر $come:</label>
-          <input type="text" name="comeRoleId" value="${adminCmdPermissions.comeRoleId}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="comeRoleId" value="${perms.comeRoleId || ''}" placeholder="أدخل ID الرتبة">
 
           <label>💬 آيدي الرتبة المسموح لها باستخدام امر $say:</label>
-          <input type="text" name="sayRoleId" value="${adminCmdPermissions.sayRoleId}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="sayRoleId" value="${perms.sayRoleId || ''}" placeholder="أدخل ID الرتبة">
 
           <button type="submit">حفظ التغييرات 💾</button>
         </form>
@@ -196,24 +231,33 @@ app.get('/admin-commands', requireAuth, (req, res) => {
   `);
 });
 
-app.post('/save-admin-commands', requireAuth, (req, res) => {
+app.post('/save-admin-commands', requireAuth, async (req, res) => {
   const { allCommandsRoleId, taxRoleId, comeRoleId, sayRoleId } = req.body;
-  adminCmdPermissions.allCommandsRoleId = allCommandsRoleId.trim();
-  adminCmdPermissions.taxRoleId = taxRoleId.trim();
-  adminCmdPermissions.comeRoleId = comeRoleId.trim();
-  adminCmdPermissions.sayRoleId = sayRoleId.trim();
+  
+  await PermissionModel.findOneAndUpdate(
+    { key: 'main_permissions' },
+    { 
+      allCommandsRoleId: allCommandsRoleId.trim(),
+      taxRoleId: taxRoleId.trim(),
+      comeRoleId: comeRoleId.trim(),
+      sayRoleId: sayRoleId.trim()
+    },
+    { upsert: true, new: true }
+  );
 
-  res.send('<h2>✅ تم حفظ صلاحيات الأوامر الإدارية بنجاح!</h2><a href="/admin-commands">العودة</a>');
+  res.send('<h2>✅ تم حفظ الصلاحيات دائماً في MongoDB!</h2><a href="/admin-commands">العودة</a>');
 });
 
-app.get('/panel', requireAuth, (req, res) => {
+app.get('/panel', requireAuth, async (req, res) => {
+  const panels = await PanelModel.find({});
   let panelsListHTML = '';
-  panelsDatabase.forEach((p, id) => {
+
+  panels.forEach(p => {
     panelsListHTML += `
       <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
-        <h3>📌 المعرف: ${id} - ${p.title}</h3>
+        <h3>📌 المعرف: ${p.panelId} - ${p.title}</h3>
         <p>روم اللوحة: ${p.channelId} | رتبة الإدارة: ${p.adminRoleId}</p>
-        <a href="/edit-panel/${id}" style="color:#38bdf8; font-weight:bold;">✏️ تعديل هذه اللوحة</a>
+        <a href="/edit-panel/${p.panelId}" style="color:#38bdf8; font-weight:bold;">✏️ تعديل هذه اللوحة</a>
       </div>
     `;
   });
@@ -287,8 +331,8 @@ app.get('/panel', requireAuth, (req, res) => {
   `);
 });
 
-app.get('/edit-panel/:id', requireAuth, (req, res) => {
-  const panel = panelsDatabase.get(req.params.id);
+app.get('/edit-panel/:id', async (req, res) => {
+  const panel = await PanelModel.findOne({ panelId: req.params.id });
   if (!panel) return res.send('اللوحة غير موجودة');
 
   res.send(`
@@ -346,7 +390,12 @@ app.get('/edit-panel/:id', requireAuth, (req, res) => {
 
 app.post('/save-panel', requireAuth, async (req, res) => {
   const data = req.body;
-  panelsDatabase.set(data.panelId, data);
+
+  await PanelModel.findOneAndUpdate(
+    { panelId: data.panelId },
+    data,
+    { upsert: true, new: true }
+  );
 
   try {
     const channel = await client.channels.fetch(data.channelId);
@@ -365,15 +414,17 @@ app.post('/save-panel', requireAuth, async (req, res) => {
       );
 
       await channel.send({ embeds: [embed], components: [row] });
-      return res.send('<h2>✅ تم حفظ اللوحة وإرسالها/تحديثها بالسيرفر بنجاح!</h2><a href="/panel">العودة للوحة التحكم</a>');
+      return res.send('<h2>✅ تم حفظ اللوحة في قاعدة البيانات وإرسالها للسيرفر بنجاح!</h2><a href="/panel">العودة للوحة التحكم</a>');
     }
   } catch (err) {
-    sendLogError('خطأ أثناء حفظ/تحديث اللوحة:', err);
-    return res.status(500).send('<h2>❌ خطأ في الإرسال! تأكد من صحة الآيديهات.</h2><a href="/panel">العودة</a>');
+    sendLogError('خطأ أثناء إرسال اللوحة:', err);
+    return res.status(500).send('<h2>❌ تم الحفظ في قاعدة البيانات ولكن تعذر إرسال الرسالة للروم. تأكد من صحة الآيدي!</h2><a href="/panel">العودة</a>');
   }
 });
 
-app.get('/stats', requireAuth, (req, res) => {
+app.get('/stats', requireAuth, async (req, res) => {
+  const statDoc = await StatModel.findOne({ key: 'main_stats' }) || { totalTickets: 0 };
+
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -400,7 +451,7 @@ app.get('/stats', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>📊 إحصائيات التذاكر الإجمالية</h1>
-        <h2>إجمالي التذاكر التي تم فتحها: ${statsDatabase.totalTickets}</h2>
+        <h2>إجمالي التذاكر التي تم فتحها: ${statDoc.totalTickets}</h2>
       </div>
     </body>
     </html>
@@ -410,7 +461,7 @@ app.get('/stats', requireAuth, (req, res) => {
 app.listen(process.env.PORT || 3000, () => console.log('🌐 خادم الويب يعمل بنجاح!'));
 
 // ==========================================
-// 3. البوت وأوامر الديسكورد
+// 4. ديسكورد ومعالجة الأحداث
 // ==========================================
 
 async function sendLogError(title, error) {
@@ -438,7 +489,6 @@ async function sendLogError(title, error) {
 client.once('ready', async () => {
   console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
-  // تسجيل أوامر السلاش الكامبة
   const commands = [
     new SlashCommandBuilder().setName('help').setDescription('عرض قائمة جميع الأوامر وشرحها مع رابط اللوحة'),
     new SlashCommandBuilder().setName('tax').setDescription('حساب ضريبة برو بوت').addIntegerOption(o => o.setName('amount').setDescription('المبلغ').setRequired(true)),
@@ -499,14 +549,16 @@ async function saveTranscript(channel, config, user, ticketData) {
   }
 }
 
-function hasAdminCommandPermission(member, specificRoleId) {
+async function hasAdminCommandPermission(member, specificRoleId) {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  if (adminCmdPermissions.allCommandsRoleId && member.roles.cache.has(adminCmdPermissions.allCommandsRoleId)) return true;
+  const perms = await PermissionModel.findOne({ key: 'main_permissions' });
+  if (!perms) return false;
+
+  if (perms.allCommandsRoleId && member.roles.cache.has(perms.allCommandsRoleId)) return true;
   if (specificRoleId && member.roles.cache.has(specificRoleId)) return true;
   return false;
 }
 
-// دالة إنشاء إمبد المساعدة ($help)
 function createHelpEmbed(dashboardUrl) {
   return new EmbedBuilder()
     .setTitle('📖 قائمة أوامر البوت والمعلومات الشاملة')
@@ -536,27 +588,25 @@ function createHelpEmbed(dashboardUrl) {
 }
 
 // --------------------------------------------------
-// معالجة الأوامر بالبريفكس
+// معالجة الرسائل
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const dashboardUrl = process.env.RENDER_EXTERNAL_URL || 'https://your-app.onrender.com';
 
-  // امر $help بالبريفكس
   if (message.content.startsWith(`${ADMIN_PREFIX}help`) || message.content.startsWith(`${PREFIX}help`)) {
     return message.channel.send({ embeds: [createHelpEmbed(dashboardUrl)] });
   }
 
-  // الأوامر الإدارية ($)
   if (message.content.startsWith(ADMIN_PREFIX)) {
     const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
+    const perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
 
     if (command === 'tax') {
-      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.taxRoleId)) {
-        return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
-      }
+      const allowed = await hasAdminCommandPermission(message.member, perms.taxRoleId);
+      if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
 
       const amount = parseInt(args[0]);
       if (isNaN(amount) || amount < 1) return message.reply('❌ يرجى كتابة مبلغ صحيح! مثال: `$tax 10000`');
@@ -578,9 +628,8 @@ client.on('messageCreate', async (message) => {
     }
 
     if (command === 'come') {
-      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.comeRoleId)) {
-        return message.reply('❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!');
-      }
+      const allowed = await hasAdminCommandPermission(message.member, perms.comeRoleId);
+      if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!');
 
       const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
       if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو وضع الآيدي الخاص به!');
@@ -600,9 +649,8 @@ client.on('messageCreate', async (message) => {
     }
 
     if (command === 'say') {
-      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.sayRoleId)) {
-        return message.reply('❌ لا تمتلك صلاحية استخدام أمر التحدث!');
-      }
+      const allowed = await hasAdminCommandPermission(message.member, perms.sayRoleId);
+      if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر التحدث!');
 
       const textToSay = args.join(' ');
       if (!textToSay) return message.reply('❌ يرجى كتابة الرسالة التي تريد من البوت قولها!');
@@ -612,7 +660,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // أوامر التذاكر (!)
   if (message.content.startsWith(`${PREFIX}logowner`)) {
     if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
       return message.reply('❌ هذا الأمر يتطلب صلاحيات **Administrator**!');
@@ -631,7 +678,7 @@ client.on('messageCreate', async (message) => {
   const ticketData = await getTicketInfo(message.channel);
   if (!ticketData) return;
 
-  const config = panelsDatabase.get(ticketData.panelId);
+  const config = await PanelModel.findOne({ panelId: ticketData.panelId });
   if (!config) return;
 
   const isAdmin = message.member.roles.cache.has(config.adminRoleId);
@@ -643,7 +690,6 @@ client.on('messageCreate', async (message) => {
     await message.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
     const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
-    
     const closedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📜').setStyle(ButtonStyle.Primary),
@@ -667,7 +713,6 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'add') {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
-    
     const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
     if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح!');
 
@@ -677,7 +722,6 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'remove') {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
-    
     const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
     if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح!');
 
@@ -687,22 +731,23 @@ client.on('messageCreate', async (message) => {
 });
 
 // --------------------------------------------------
-// معالجة التفاعل وأوامر السلاش (/)
+// معالجة التفاعلات السلاش والأزرار
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
   try {
     const dashboardUrl = process.env.RENDER_EXTERNAL_URL || 'https://your-app.onrender.com';
 
     if (interaction.isChatInputCommand()) {
-      // امر /help بالسلاش
       if (interaction.commandName === 'help') {
         return interaction.reply({ embeds: [createHelpEmbed(dashboardUrl)] });
       }
 
+      const perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
+
       if (interaction.commandName === 'tax') {
-        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.taxRoleId)) {
-          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الضريبة!', ephemeral: true });
-        }
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.taxRoleId);
+        if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الضريبة!', ephemeral: true });
+
         const amount = interaction.options.getInteger('amount');
         const netAmount = Math.floor(amount * 0.95);
         const grossAmount = Math.ceil(amount * (20 / 19));
@@ -721,9 +766,9 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (interaction.commandName === 'come') {
-        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.comeRoleId)) {
-          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!', ephemeral: true });
-        }
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.comeRoleId);
+        if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!', ephemeral: true });
+
         const targetUser = interaction.options.getUser('user');
         try {
           const comeEmbed = new EmbedBuilder()
@@ -740,9 +785,9 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (interaction.commandName === 'say') {
-        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.sayRoleId)) {
-          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر التحدث!', ephemeral: true });
-        }
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.sayRoleId);
+        if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر التحدث!', ephemeral: true });
+
         const msg = interaction.options.getString('message');
         await interaction.channel.send(msg);
         return interaction.reply({ content: '✅ تم إرسال الرسالة بنجاح!', ephemeral: true });
@@ -760,7 +805,7 @@ client.on('interactionCreate', async (interaction) => {
       const ticketData = await getTicketInfo(interaction.channel);
       if (!ticketData) return interaction.reply({ content: '❌ هذا الأمر يشتغل داخل التذاكر فقط!', ephemeral: true });
 
-      const config = panelsDatabase.get(ticketData.panelId);
+      const config = await PanelModel.findOne({ panelId: ticketData.panelId });
       if (!config) return interaction.reply({ content: '❌ إعدادات اللوحة غير متوفرة!', ephemeral: true });
 
       const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
@@ -813,8 +858,8 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.deferReply({ ephemeral: true });
 
       const panelId = interaction.customId.replace('open_ticket_', '');
-      const config = panelsDatabase.get(panelId);
-      if (!config) return interaction.editReply({ content: '❌ لم يتم العثور على اللوحة!' });
+      const config = await PanelModel.findOne({ panelId: panelId });
+      if (!config) return interaction.editReply({ content: '❌ لم يتم العثور على اللوحة في قاعدة البيانات!' });
 
       const ticketChannel = await interaction.guild.channels.create({
         name: `ticket-${interaction.user.username}`,
@@ -828,7 +873,12 @@ client.on('interactionCreate', async (interaction) => {
         ]
       });
 
-      statsDatabase.totalTickets += 1;
+      await StatModel.findOneAndUpdate(
+        { key: 'main_stats' },
+        { $inc: { totalTickets: 1 } },
+        { upsert: true }
+      );
+
       await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: panelId }));
 
       const welcomeEmbed = new EmbedBuilder()
@@ -853,7 +903,7 @@ client.on('interactionCreate', async (interaction) => {
     const ticketData = await getTicketInfo(interaction.channel);
     if (!ticketData) return;
 
-    const config = panelsDatabase.get(ticketData.panelId);
+    const config = await PanelModel.findOne({ panelId: ticketData.panelId });
     if (!config) return;
 
     const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
