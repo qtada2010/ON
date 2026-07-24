@@ -8,9 +8,6 @@ const {
   ChannelType, 
   PermissionFlagsBits,
   AttachmentBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   REST,
   Routes,
   SlashCommandBuilder
@@ -365,10 +362,13 @@ async function sendLogError(title, error) {
 client.once('ready', async () => {
   console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
+  // تسجيل أوامر السلاش (/) مع add و remove
   const commands = [
     new SlashCommandBuilder().setName('close').setDescription('إغلاق التذكرة الحالية'),
     new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية (للإدارة العليا فقط)'),
     new SlashCommandBuilder().setName('save').setDescription('حفظ ترانسكريبت التذكرة في روم اللوق'),
+    new SlashCommandBuilder().setName('add').setDescription('إضافة شخص للتذكرة').addUserOption(o => o.setName('user').setDescription('العضو المراد إضافته').setRequired(true)),
+    new SlashCommandBuilder().setName('remove').setDescription('إزالة شخص من التذكرة').addUserOption(o => o.setName('user').setDescription('العضو المراد إزالته').setRequired(true)),
     new SlashCommandBuilder().setName('logowner').setDescription('تحديد روم لوق أخطاء البوت للمالك').addChannelOption(o => o.setName('channel').setDescription('القناة').setRequired(true))
   ];
 
@@ -452,18 +452,14 @@ client.on('messageCreate', async (message) => {
 
     const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
     
-    // الأزرار المحدثة
-    const closedRow1 = new ActionRowBuilder().addComponents(
+    // الأزرار فقط (بدون إضافة/إزالة شخص)
+    const closedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📜').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('ticket_add_user').setLabel('إضافة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('ticket_remove_user').setLabel('إزالة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary)
-    );
-    const closedRow2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
     );
 
-    return message.channel.send({ embeds: [closedEmbed], components: [closedRow1, closedRow2] });
+    return message.channel.send({ embeds: [closedEmbed], components: [closedRow] });
   }
 
   if (command === 'save') {
@@ -473,58 +469,37 @@ client.on('messageCreate', async (message) => {
   }
 
   if (command === 'delete') {
-    // محصورة للإدارة العليا فقط
     if (!isHighAdmin) return message.reply('❌ هذا الأمر مخصص **للإدارة العليا** فقط!');
     await message.reply('🗑️ جاري حذف التذكرة...');
     setTimeout(() => message.channel.delete().catch(() => {}), 3000);
   }
+
+  if (command === 'add') {
+    if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
+    
+    const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح! (مثال: `!add 1234567890`)');
+
+    await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true });
+    return message.reply(`✅ تم إضافة ${targetMember} إلى التذكرة بنجاح.`);
+  }
+
+  if (command === 'remove') {
+    if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
+    
+    const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح! (مثال: `!remove 1234567890`)');
+
+    await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: false, SendMessages: false });
+    return message.reply(`🚫 تم إزالة ${targetMember} من التذكرة بنجاح.`);
+  }
 });
 
 // --------------------------------------------------
-// التفاعل مع الأزرار وأوامر السلاش (/) والـ Modals
+// التفاعل مع الأزرار وأوامر السلاش (/)
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. التعامل مع الـ Modal (إضافة وإزالة شخص)
-    if (interaction.isModalSubmit()) {
-      const ticketData = await getTicketInfo(interaction.channel);
-      if (!ticketData) return interaction.reply({ content: '❌ خطأ في التعرف على التكت.', ephemeral: true });
-
-      const config = panelsDatabase.get(ticketData.panelId);
-      if (!config) return interaction.reply({ content: '❌ إعدادات اللوحة غير متوفرة!', ephemeral: true });
-
-      const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
-      const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
-
-      if (!isAdmin && !isHighAdmin) {
-        return interaction.reply({ content: '❌ هذه الخاصية مخصصة للإدارة فقط!', ephemeral: true });
-      }
-
-      const targetUserId = interaction.fields.getTextInputValue('target_user_id');
-      const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-
-      if (!targetMember) {
-        return interaction.reply({ content: '❌ لم يتم العثور على هذا العضو! تأكد من صحة الآيدي.', ephemeral: true });
-      }
-
-      if (interaction.customId === 'modal_add_user') {
-        await interaction.channel.permissionOverwrites.edit(targetMember.id, {
-          ViewChannel: true,
-          SendMessages: true
-        });
-        return interaction.reply({ content: `✅ تم إدخال ${targetMember} إلى التذكرة بنجاح.` });
-      }
-
-      if (interaction.customId === 'modal_remove_user') {
-        await interaction.channel.permissionOverwrites.edit(targetMember.id, {
-          ViewChannel: false,
-          SendMessages: false
-        });
-        return interaction.reply({ content: `🚫 تم إخراج ${targetMember} من التذكرة بنجاح.` });
-      }
-    }
-
-    // 2. التعامل مع أوامر السلاش (/)
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'logowner') {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -550,17 +525,13 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
         const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
-        const closedRow1 = new ActionRowBuilder().addComponents(
+        const closedRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📜').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('ticket_add_user').setLabel('إضافة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId('ticket_remove_user').setLabel('إزالة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary)
-        );
-        const closedRow2 = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
         );
 
-        return interaction.reply({ embeds: [closedEmbed], components: [closedRow1, closedRow2] });
+        return interaction.reply({ embeds: [closedEmbed], components: [closedRow] });
       }
 
       if (interaction.commandName === 'save') {
@@ -571,14 +542,26 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (interaction.commandName === 'delete') {
-        // حصر الحذف للإدارة العليا فقط
         if (!isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة العليا فقط!', ephemeral: true });
         await interaction.reply({ content: '🗑️ جاري الحذف خلال 3 ثوانٍ...' });
         setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
       }
+
+      if (interaction.commandName === 'add') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+        const targetUser = interaction.options.getUser('user');
+        await interaction.channel.permissionOverwrites.edit(targetUser.id, { ViewChannel: true, SendMessages: true });
+        return interaction.reply({ content: `✅ تم إضافة ${targetUser} إلى التذكرة بنجاح.` });
+      }
+
+      if (interaction.commandName === 'remove') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+        const targetUser = interaction.options.getUser('user');
+        await interaction.channel.permissionOverwrites.edit(targetUser.id, { ViewChannel: false, SendMessages: false });
+        return interaction.reply({ content: `🚫 تم إزالة ${targetUser} من التذكرة بنجاح.` });
+      }
     }
 
-    // 3. فتح تكت جديد
     if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
       await interaction.deferReply({ ephemeral: true });
 
@@ -619,7 +602,6 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply({ content: `✅ تم إنشاء التذكرة بنجاح: ${ticketChannel}` });
     }
 
-    // التأكد من أن التفاعل يتم داخل روم التكت
     if (!interaction.guild || !interaction.channel.topic) return;
     const ticketData = await getTicketInfo(interaction.channel);
     if (!ticketData) return;
@@ -631,7 +613,6 @@ client.on('interactionCreate', async (interaction) => {
     const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
     const isOwner = interaction.user.id === ticketData.ownerId;
 
-    // طلب إغلاق التكت
     if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
       if (!isAdmin && !isHighAdmin && !isOwner) return interaction.reply({ content: '❌ لا تمتلك صلاحية الإغلاق!', ephemeral: true });
 
@@ -646,72 +627,32 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.message.delete().catch(() => {});
     }
 
-    // تأكيد إغلاق التكت
     if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
-      // 1️⃣ حذف رسالة التأكيد فوراً
+      // 1️⃣ حذف رسالة التأكيد تلقائياً
       await interaction.message.delete().catch(() => {});
 
-      // 2️⃣ إغلاق صلاحيات صاحب التكت
+      // 2️⃣ إغلاق التكت
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
       const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
-      
-      const closedRow1 = new ActionRowBuilder().addComponents(
+      const closedRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📜').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('ticket_add_user').setLabel('إضافة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('ticket_remove_user').setLabel('إزالة شخص').setEmoji('👤').setStyle(ButtonStyle.Secondary)
-      );
-      const closedRow2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التكت').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
       );
 
-      return interaction.channel.send({ embeds: [closedEmbed], components: [closedRow1, closedRow2] });
+      return interaction.channel.send({ embeds: [closedEmbed], components: [closedRow] });
     }
 
-    // إعادة فتح التكت
     if (interaction.isButton() && interaction.customId === 'ticket_reopen') {
-      // 1️⃣ حذف رسالة الإغلاق والأزرار
+      // 1️⃣ حذف رسالة الإغلاق فوراً
       await interaction.message.delete().catch(() => {});
 
-      // 2️⃣ إرجاع الصلاحيات للمستخدم
+      // 2️⃣ إرجاع صلاحيات الفتح
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: true });
       return interaction.channel.send({ content: `🔓 تم إعادة فتح التذكرة بواسطة ${interaction.user}` });
     }
 
-    // زر إضافة شخص
-    if (interaction.isButton() && interaction.customId === 'ticket_add_user') {
-      if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
-
-      const modal = new ModalBuilder().setCustomId('modal_add_user').setTitle('إضافة شخص للتكت');
-      const userInput = new TextInputBuilder()
-        .setCustomId('target_user_id')
-        .setLabel('آيدي الشخص (User ID)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('مثال: 123456789012345678')
-        .setRequired(true);
-
-      modal.addComponents(new ActionRowBuilder().addComponents(userInput));
-      return interaction.showModal(modal);
-    }
-
-    // زر إزالة شخص
-    if (interaction.isButton() && interaction.customId === 'ticket_remove_user') {
-      if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
-
-      const modal = new ModalBuilder().setCustomId('modal_remove_user').setTitle('إزالة شخص من التكت');
-      const userInput = new TextInputBuilder()
-        .setCustomId('target_user_id')
-        .setLabel('آيدي الشخص (User ID)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('مثال: 123456789012345678')
-        .setRequired(true);
-
-      modal.addComponents(new ActionRowBuilder().addComponents(userInput));
-      return interaction.showModal(modal);
-    }
-
-    // حفظ الترانسكريبت
     if (interaction.isButton() && interaction.customId === 'ticket_save_log') {
       await interaction.deferReply();
       const success = await saveTranscript(interaction.channel, config, interaction.user, ticketData);
@@ -719,7 +660,6 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply({ content: '❌ تعذر العثور على قناة اللوق المحددة في الإعدادات.' });
     }
 
-    // حذف التكت (محصورة للإدارة العليا فقط)
     if (interaction.isButton() && interaction.customId === 'ticket_delete') {
       if (!isHighAdmin) return interaction.reply({ content: '❌ عذراً، حذف التذكرة مخصص **للإدارة العليا** فقط!', ephemeral: true });
       await interaction.reply({ content: '🗑️ سيتم حذف التذكرة خلال 3 ثوانٍ...' });
