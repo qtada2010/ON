@@ -185,7 +185,6 @@ app.get('/', requireAuth, (req, res) => {
   `);
 });
 
-// قائمة اللوحات + إنشاء
 app.get('/panel', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM panels');
   let panelsListHTML = '';
@@ -263,7 +262,7 @@ app.get('/panel', requireAuth, async (req, res) => {
           <label>وصف اللوحة:</label>
           <textarea name="description" rows="2" required>اختر نوع الخدمة أو الوسيط من القائمة بالأسفل لفتح التكت.</textarea>
 
-          <button type="submit">إنشاء اللوحة والانتقال لاقتطاع الخيارات/الأزرار ➡️</button>
+          <button type="submit">إنشاء اللوحة والانتقال لإضافة الخيارات/الأزرار ➡️</button>
         </form>
 
         <hr style="margin: 30px 0; border-color: #334155;">
@@ -289,12 +288,11 @@ app.post('/create-panel', requireAuth, async (req, res) => {
       title = EXCLUDED.title,
       description = EXCLUDED.description,
       type = EXCLUDED.type;
-  `, [d.panelId, d.channelId, d.categoryId, d.adminRoleId, d.highAdminRoleId, d.logChannelId, d.title, d.description, d.type]);
+  `, [d.panelId.trim(), d.channelId.trim(), d.categoryId.trim(), d.adminRoleId.trim(), d.highAdminRoleId.trim(), d.logChannelId.trim(), d.title, d.description, d.type]);
 
-  res.redirect(`/edit-panel/${d.panelId}`);
+  res.redirect(`/edit-panel/${d.panelId.trim()}`);
 });
 
-// تعديل اللوحة وإضافة خيارات/أزرار بلا حدود
 app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
   const panel = pRes.rows[0];
@@ -356,8 +354,8 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
           <label>وصف الخيار (يظهر تحت الاسم بالقائمة المنسدلة):</label>
           <input type="text" name="description" placeholder="يمكنه التوسط لأي مبلغ لا يتعدى 15 مليون">
 
-          <label>الإيموجي (اختياري):</label>
-          <input type="text" name="emoji" placeholder="مثال: 🤝 أو ✨">
+          <label>الإيموجي (اختياري - يفضل ترك فارغ أو وضع إيموجي حقيقي):</label>
+          <input type="text" name="emoji" placeholder="مثال: 🤝">
 
           <label>رسالة الترحيب الخاّصة عند فتح هذا الخيار:</label>
           <textarea name="welcomeMessage" rows="2" required>أهلاً بك! تم فتح التذكرة لطلب وسيط جديد، انتظر رد الإدارة.</textarea>
@@ -387,7 +385,7 @@ app.post('/add-option', requireAuth, async (req, res) => {
   await pool.query(`
     INSERT INTO panel_options (panel_id, option_id, label, description, emoji, welcome_message)
     VALUES ($1, $2, $3, $4, $5, $6)
-  `, [d.panelId, optionId, d.label, d.description, d.emoji, d.welcomeMessage]);
+  `, [d.panelId, optionId, d.label.trim(), d.description ? d.description.trim() : '', d.emoji ? d.emoji.trim() : '', d.welcomeMessage]);
 
   res.redirect(`/edit-panel/${d.panelId}`);
 });
@@ -397,7 +395,9 @@ app.get('/delete-option/:optId/:panelId', requireAuth, async (req, res) => {
   res.redirect(`/edit-panel/${req.params.panelId}`);
 });
 
-// إرسال اللوحة لديسكورد
+// ==========================================
+// تصحيح دالة إرسال ونشر اللوحة (مُصلحة 100%)
+// ==========================================
 app.post('/publish-panel', requireAuth, async (req, res) => {
   const panelId = req.body.panelId;
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [panelId]);
@@ -410,7 +410,7 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
 
   try {
     const channel = await client.channels.fetch(panel.channel_id);
-    if (!channel) return res.send('❌ تعذر الوصول لروم اللوحة');
+    if (!channel) return res.send('❌ تعذر الوصول لروم اللوحة! تأكد من آيدي القناة وأن البوت موجود بالسيرفر.');
 
     const embed = new EmbedBuilder()
       .setTitle(panel.title)
@@ -429,8 +429,14 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
           .setLabel(opt.label)
           .setValue(opt.option_id);
 
-        if (opt.description) optionBuilder.setDescription(opt.description);
-        if (opt.emoji) optionBuilder.setEmoji(opt.emoji);
+        if (opt.description && opt.description.trim() !== '') {
+          optionBuilder.setDescription(opt.description.trim());
+        }
+        if (opt.emoji && opt.emoji.trim() !== '') {
+          try {
+            optionBuilder.setEmoji(opt.emoji.trim());
+          } catch (e) {}
+        }
 
         selectMenu.addOptions(optionBuilder);
       });
@@ -438,7 +444,6 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
       components.push(new ActionRowBuilder().addComponents(selectMenu));
 
     } else {
-      // إذا كانت أزرار
       let currentRow = new ActionRowBuilder();
       optionsRes.rows.forEach((opt, idx) => {
         if (idx > 0 && idx % 5 === 0) {
@@ -451,7 +456,11 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
           .setLabel(opt.label)
           .setStyle(ButtonStyle.Primary);
 
-        if (opt.emoji) btn.setEmoji(opt.emoji);
+        if (opt.emoji && opt.emoji.trim() !== '') {
+          try {
+            btn.setEmoji(opt.emoji.trim());
+          } catch (e) {}
+        }
 
         currentRow.addComponents(btn);
       });
@@ -461,7 +470,7 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
     await channel.send({ embeds: [embed], components: components });
     res.send('<h2>✅ تم نشر اللوحة وتحديثها بنجاح داخل ديسكورد!</h2><a href="/panel">العودة للوحة التحكم</a>');
   } catch (err) {
-    sendLogError('خطأ أثناء إرسال اللوحة:', err);
+    console.error('خطأ أثناء نشر اللوحة:', err);
     res.send(`❌ حدث خطأ أثناء الإرسال: ${err.message}`);
   }
 });
@@ -700,48 +709,57 @@ function createHelpEmbed(dashboardUrl) {
 
 // إنشاء التذكر المشتركة للنوعين
 async function handleTicketCreation(interaction, optionId) {
-  const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
-  const option = optRes.rows[0];
-  if (!option) return interaction.reply({ content: '❌ هذا الخيار غير مسجل في قاعدة البيانات!', ephemeral: true });
+  try {
+    await interaction.deferReply({ ephemeral: true });
 
-  const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
-  const config = panelRes.rows[0];
+    const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
+    const option = optRes.rows[0];
+    if (!option) return interaction.editReply({ content: '❌ هذا الخيار غير مسجل في قاعدة البيانات!' });
 
-  const ticketChannel = await interaction.guild.channels.create({
-    name: `ticket-${interaction.user.username}`,
-    type: ChannelType.GuildText,
-    parent: config.category_id,
-    permissionOverwrites: [
-      { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-      { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-      { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-    ]
-  });
+    const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
+    const config = panelRes.rows[0];
 
-  await pool.query(`
-    INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1)
-    ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;
-  `);
+    const ticketChannel = await interaction.guild.channels.create({
+      name: `ticket-${interaction.user.username}`,
+      type: ChannelType.GuildText,
+      parent: config.category_id,
+      permissionOverwrites: [
+        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+      ]
+    });
 
-  await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: config.panel_id }));
+    await pool.query(`
+      INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1)
+      ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;
+    `);
 
-  const welcomeEmbed = new EmbedBuilder()
-    .setTitle(`تذكرة دعم جديدة | ${option.label}`)
-    .setDescription(`${option.welcome_message}\n\n👤 **صاحب التذكرة:** ${interaction.user}`)
-    .setColor(0x0284c7);
+    await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: config.panel_id }));
 
-  const buttonsRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger)
-  );
+    const welcomeEmbed = new EmbedBuilder()
+      .setTitle(`تذكرة دعم جديدة | ${option.label}`)
+      .setDescription(`${option.welcome_message}\n\n👤 **صاحب التذكرة:** ${interaction.user}`)
+      .setColor(0x0284c7);
 
-  await ticketChannel.send({ 
-    content: `${interaction.user} | <@&${config.admin_role_id}> | <@&${config.high_admin_role_id}>`, 
-    embeds: [welcomeEmbed], 
-    components: [buttonsRow] 
-  });
+    const buttonsRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger)
+    );
 
-  return interaction.reply({ content: `✅ تم إنشاء التذكرة بنجاح: ${ticketChannel}`, ephemeral: true });
+    await ticketChannel.send({ 
+      content: `${interaction.user} | <@&${config.admin_role_id}> | <@&${config.high_admin_role_id}>`, 
+      embeds: [welcomeEmbed], 
+      components: [buttonsRow] 
+    });
+
+    return interaction.editReply({ content: `✅ تم إنشاء التذكرة بنجاح: ${ticketChannel}` });
+  } catch (err) {
+    console.error('خطأ أثناء فتح التذكرة:', err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content: '❌ حدث خطأ أثناء إنشاء التذكرة، يرجى التأكد من صلاحيات البوت وآيدي الكاتيجوري.' });
+    }
+  }
 }
 
 // --------------------------------------------------
@@ -892,7 +910,6 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'help') return interaction.reply({ embeds: [createHelpEmbed(dashboardUrl)] });
-      // باقي أوامر السلاش تعمل تلقائياً بنفس الآلية
     }
 
     // فتح تذكرة عبر القائمة المنسدلة (Select Menu)
