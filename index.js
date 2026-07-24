@@ -15,20 +15,31 @@ const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
 
 // ==========================================
-// 1. إنشاء العميل (Client) - يجب أن يكون هنا قبل أي استخدام له
+// 1. إنشاء العميل (Client)
 // ==========================================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
 const PREFIX = '!';
+const ADMIN_PREFIX = '$'; // بريفكس الأوامر الإدارية الجديدة
+
 const panelsDatabase = new Map();
 const statsDatabase = { totalTickets: 0 };
 let ownerLogChannelId = null;
+
+// قاعدة بيانات صلاحيات الأوامر الإدارية
+const adminCmdPermissions = {
+  allCommandsRoleId: '', // رتبة لها صلاحية استخدام كل الأوامر
+  taxRoleId: '',          // رتبة مخصصة لأمر $tax
+  comeRoleId: '',         // رتبة مخصصة لأمر $come
+  sayRoleId: ''           // رتبة مخصصة لأمر $say
+};
 
 // ==========================================
 // 2. خادم الويب ولوحة التحكم
@@ -99,14 +110,14 @@ app.get('/', requireAuth, (req, res) => {
     <html lang="ar" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>لوحة التحكم بالتذاكر</title>
+      <title>لوحة التحكم</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
         nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
         nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
         h1 { color: #38bdf8; text-align: center; }
-        .btn { display: inline-block; padding: 10px 20px; background: #0284c7; color: white; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 15px; }
+        .btn { display: inline-block; padding: 10px 20px; background: #0284c7; color: white; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 5px; }
         .logout { color: #ef4444; text-decoration: none; font-weight: bold; }
       </style>
     </head>
@@ -114,22 +125,86 @@ app.get('/', requireAuth, (req, res) => {
       <nav>
         <div class="links">
           <a href="/">الرئيسية 🏠</a>
-          <a href="/stats">الإحصائيات 📊</a>
           <a href="/panel">إدارة اللوحات ⚙️</a>
+          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
+          <a href="/stats">الإحصائيات 📊</a>
         </div>
         <a href="/logout" class="logout">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1>لوحة تحكم التذاكر 🎫</h1>
-        <p style="text-align:center; color: #94a3b8;">يمكنك التحكم الكامل وتعديل اللوحات ومتابعة النظام من هنا.</p>
+        <h1>لوحة تحكم البوت الشاملة 🎫</h1>
+        <p style="text-align:center; color: #94a3b8;">يمكنك التحكم بالتذاكر والأوامر الإدارية والصلاحيات من هنا بسهولة.</p>
         <div style="text-align:center; margin-top: 30px;">
-          <a href="/panel" class="btn">إنشاء / تعديل اللوحات 🛠️</a>
+          <a href="/panel" class="btn">إدارة لوحات التذاكر 🛠️</a>
+          <a href="/admin-commands" class="btn" style="background:#8b5cf6;">صلاحيات الأوامر الإدارية 🛡️</a>
           <a href="/stats" class="btn" style="background:#059669;">الإحصائيات 📊</a>
         </div>
       </div>
     </body>
     </html>
   `);
+});
+
+// صفحة التحكم في صلاحيات الأوامر الإدارية ($tax, $come, $say)
+app.get('/admin-commands', requireAuth, (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>إدارة صلاحيات الأوامر</title>
+      <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
+        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
+        .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
+        h1, h2 { color: #38bdf8; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        button { margin-top: 25px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+      </style>
+    </head>
+    <body>
+      <nav>
+        <div class="links">
+          <a href="/">الرئيسية 🏠</a>
+          <a href="/panel">إدارة اللوحات ⚙️</a>
+          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
+          <a href="/stats">الإحصائيات 📊</a>
+        </div>
+        <a href="/logout" style="color:#ef4444; text-decoration:none; font-weight:bold;">تسجيل الخروج 🚪</a>
+      </nav>
+      <div class="container">
+        <h1>🛡️ التحكم في صلاحيات الأوامر الإدارية ($)</h1>
+        <form action="/save-admin-commands" method="POST">
+          <label>⭐ آيدي رتبة الإدارة العامة (تستطيع استخدام كل الأوامر):</label>
+          <input type="text" name="allCommandsRoleId" value="${adminCmdPermissions.allCommandsRoleId}" placeholder="أدخل ID الرتبة الشاملة">
+
+          <label>💰 آيدي الرتبة المسموح لها باستخدام امر $tax:</label>
+          <input type="text" name="taxRoleId" value="${adminCmdPermissions.taxRoleId}" placeholder="أدخل ID الرتبة">
+
+          <label>📢 آيدي الرتبة المسموح لها باستخدام امر $come:</label>
+          <input type="text" name="comeRoleId" value="${adminCmdPermissions.comeRoleId}" placeholder="أدخل ID الرتبة">
+
+          <label>💬 آيدي الرتبة المسموح لها باستخدام امر $say:</label>
+          <input type="text" name="sayRoleId" value="${adminCmdPermissions.sayRoleId}" placeholder="أدخل ID الرتبة">
+
+          <button type="submit">حفظ التغييرات 💾</button>
+        </form>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/save-admin-commands', requireAuth, (req, res) => {
+  const { allCommandsRoleId, taxRoleId, comeRoleId, sayRoleId } = req.body;
+  adminCmdPermissions.allCommandsRoleId = allCommandsRoleId.trim();
+  adminCmdPermissions.taxRoleId = taxRoleId.trim();
+  adminCmdPermissions.comeRoleId = comeRoleId.trim();
+  adminCmdPermissions.sayRoleId = sayRoleId.trim();
+
+  res.send('<h2>✅ تم حفظ صلاحيات الأوامر الإدارية بنجاح!</h2><a href="/admin-commands">العودة</a>');
 });
 
 app.get('/panel', requireAuth, (req, res) => {
@@ -165,8 +240,9 @@ app.get('/panel', requireAuth, (req, res) => {
       <nav>
         <div class="links">
           <a href="/">الرئيسية 🏠</a>
-          <a href="/stats">الإحصائيات 📊</a>
           <a href="/panel">إدارة اللوحات ⚙️</a>
+          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
+          <a href="/stats">الإحصائيات 📊</a>
         </div>
         <a href="/logout" style="color:#ef4444; text-decoration:none; font-weight:bold;">تسجيل الخروج 🚪</a>
       </nav>
@@ -317,8 +393,9 @@ app.get('/stats', requireAuth, (req, res) => {
       <nav>
         <div class="links">
           <a href="/">الرئيسية 🏠</a>
-          <a href="/stats">الإحصائيات 📊</a>
           <a href="/panel">إدارة اللوحات ⚙️</a>
+          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
+          <a href="/stats">الإحصائيات 📊</a>
         </div>
         <a href="/logout" style="color:#ef4444; text-decoration:none; font-weight:bold;">تسجيل الخروج 🚪</a>
       </nav>
@@ -418,12 +495,94 @@ async function saveTranscript(channel, config, user, ticketData) {
   }
 }
 
+// دالة التحقق من صلاحيات الأوامر الإدارية ($)
+function hasAdminCommandPermission(member, specificRoleId) {
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (adminCmdPermissions.allCommandsRoleId && member.roles.cache.has(adminCmdPermissions.allCommandsRoleId)) return true;
+  if (specificRoleId && member.roles.cache.has(specificRoleId)) return true;
+  return false;
+}
+
 // --------------------------------------------------
-// معالجة أوامر البريفكس (!)
+// معالجة الرسائل والأوامر
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
+  // ==========================================
+  // الأوامر الإدارية الجديدة (البريفكس $)
+  // ==========================================
+  if (message.content.startsWith(ADMIN_PREFIX)) {
+    const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    // 1. أمر حساب الضريبة $tax
+    if (command === 'tax') {
+      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.taxRoleId)) {
+        return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
+      }
+
+      const amount = parseInt(args[0]);
+      if (isNaN(amount) || amount < 1) {
+        return message.reply('❌ يرجى كتابة مبلغ صحيح! مثال: `$tax 10000`');
+      }
+
+      const netAmount = Math.floor(amount * 0.95); // المبلغ الصافي بعد خصم 5%
+      const grossAmount = Math.ceil(amount * (20 / 19)); // المبلغ المطلوب تحويله لتصل القيمة كاملة
+
+      const taxEmbed = new EmbedBuilder()
+        .setTitle('💰 حاسبة ضريبة ProBot')
+        .addFields(
+          { name: 'المبلغ الأصلي:', value: `\`${amount.toLocaleString()}\``, inline: true },
+          { name: 'المبلغ الصافي (بعد الخصم):', value: `\`${netAmount.toLocaleString()}\``, inline: true },
+          { name: 'المبلغ الواجب تحويله ليرسل لك المطلوب تماماً:', value: `\`${grossAmount.toLocaleString()}\``, inline: false }
+        )
+        .setColor(0x059669)
+        .setTimestamp();
+
+      return message.channel.send({ embeds: [taxEmbed] });
+    }
+
+    // 2. أمر استدعاء عضو في الخاص $come
+    if (command === 'come') {
+      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.comeRoleId)) {
+        return message.reply('❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!');
+      }
+
+      const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+      if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو وضع الآيدي الخاص به!');
+
+      try {
+        const comeEmbed = new EmbedBuilder()
+          .setTitle('🔔 لديك استدعاء في السيرفر!')
+          .setDescription(`تم استدعاؤك بواسطة الإداري: **${message.author.tag}**\n\n📌 **الروم:** ${message.channel}\n🔗 **رابط مباشر:** [اضغط هنا للذهاب للروم](${message.url})`)
+          .setColor(0xeab308)
+          .setTimestamp();
+
+        await targetMember.send({ embeds: [comeEmbed] });
+        return message.reply(`✅ تم إرسال إشعار استدعاء بالخاص لـ ${targetMember}.`);
+      } catch (err) {
+        return message.reply('❌ تعذر إرسال رسالة بالخاص للشخص (قد تكون رسائله الخاصة مغلقة).');
+      }
+    }
+
+    // 3. أمر جعل البوت يتحدث $say
+    if (command === 'say') {
+      if (!hasAdminCommandPermission(message.member, adminCmdPermissions.sayRoleId)) {
+        return message.reply('❌ لا تمتلك صلاحية استخدام أمر التحدث!');
+      }
+
+      const textToSay = args.join(' ');
+      if (!textToSay) return message.reply('❌ يرجى كتابة الرسالة التي تريد من البوت قولها!');
+
+      await message.delete().catch(() => {});
+      return message.channel.send(textToSay);
+    }
+  }
+
+  // ==========================================
+  // أوامر التذاكر والبريفكس (!)
+  // ==========================================
   if (message.content.startsWith(`${PREFIX}logowner`)) {
     if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
       return message.reply('❌ هذا الأمر يتطلب صلاحيات **Administrator**!');
