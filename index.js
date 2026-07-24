@@ -7,12 +7,12 @@ const {
   EmbedBuilder, 
   ChannelType, 
   PermissionFlagsBits,
-  AttachmentBuilder,
   REST,
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
+const discordTranscripts = require('discord-html-transcripts'); // مكتبة حفظ الترانسكريبت كصفحة ويب
 
 // ==========================================
 // 1. إنشاء العميل (Client)
@@ -362,7 +362,6 @@ async function sendLogError(title, error) {
 client.once('ready', async () => {
   console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
-  // تسجيل أوامر السلاش (/) مع add و remove
   const commands = [
     new SlashCommandBuilder().setName('close').setDescription('إغلاق التذكرة الحالية'),
     new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية (للإدارة العليا فقط)'),
@@ -386,21 +385,25 @@ async function getTicketInfo(channel) {
   try { return JSON.parse(channel.topic); } catch (e) { return null; }
 }
 
+// دالة جديدة لتوليد ترانسكريبت تفاعلي مصمم بتنسيق HTML
 async function saveTranscript(channel, config, user, ticketData) {
-  const messages = await channel.messages.fetch({ limit: 100 });
-  let transcriptText = `--- سجل التكت: ${channel.name} ---\n\n`;
-
-  messages.reverse().forEach(m => {
-    transcriptText += `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content}\n`;
-  });
-
-  const buffer = Buffer.from(transcriptText, 'utf-8');
-  const attachment = new AttachmentBuilder(buffer, { name: `${channel.name}-transcript.txt` });
-
   const logChannel = channel.guild.channels.cache.get(config.logChannelId);
-  if (logChannel) {
+  if (!logChannel) return false;
+
+  try {
+    // إنشاء ملف HTML متكامل يبدو كـ Discord
+    const attachment = await discordTranscripts.createTranscript(channel, {
+      limit: -1, // جلب كافة الرسائل
+      returnType: 'attachment',
+      filename: `${channel.name}-transcript.html`,
+      saveImages: true,
+      footerText: 'تمت أرشفة التكت بنجاح',
+      poweredBy: false
+    });
+
     const logEmbed = new EmbedBuilder()
-      .setTitle('📜 سجل الترانسكريبت للتذكرة')
+      .setTitle('🌐 سجل ترانسكريبت تفاعلي (HTML)')
+      .setDescription('اضغط على الملف المرفق أدناه وفتحه في أي متصفح لقراءة التكت بتصميم ديسكورد الكامل!')
       .addFields(
         { name: 'التكت:', value: channel.name, inline: true },
         { name: 'صاحب التكت:', value: `<@${ticketData.ownerId}>`, inline: true },
@@ -411,8 +414,10 @@ async function saveTranscript(channel, config, user, ticketData) {
 
     await logChannel.send({ embeds: [logEmbed], files: [attachment] });
     return true;
+  } catch (err) {
+    sendLogError('خطأ أثناء إنشاء الترانسكريبت التفاعلي:', err);
+    return false;
   }
-  return false;
 }
 
 // --------------------------------------------------
@@ -452,7 +457,6 @@ client.on('messageCreate', async (message) => {
 
     const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
     
-    // الأزرار فقط (بدون إضافة/إزالة شخص)
     const closedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_reopen').setLabel('إعادة فتح').setEmoji('🔓').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📜').setStyle(ButtonStyle.Primary),
@@ -464,7 +468,7 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'save') {
     const success = await saveTranscript(message.channel, config, message.author, ticketData);
-    if (success) return message.reply('✅ تم حفظ الترانسكريبت بنجاح إلى قناة اللوق!');
+    if (success) return message.reply('✅ تم إنشاء ملف الترانسكريبت المنسق (HTML) وإرساله إلى روم اللوق!');
     return message.reply('❌ تعذر العثور على قناة اللوق المحددة في الإعدادات.');
   }
 
@@ -478,7 +482,7 @@ client.on('messageCreate', async (message) => {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
     
     const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
-    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح! (مثال: `!add 1234567890`)');
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح!');
 
     await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true });
     return message.reply(`✅ تم إضافة ${targetMember} إلى التذكرة بنجاح.`);
@@ -488,7 +492,7 @@ client.on('messageCreate', async (message) => {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ هذا الأمر مخصص للإدارة فقط!');
     
     const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
-    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح! (مثال: `!remove 1234567890`)');
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه بشكل صحيح!');
 
     await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: false, SendMessages: false });
     return message.reply(`🚫 تم إزالة ${targetMember} من التذكرة بنجاح.`);
@@ -537,7 +541,7 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.commandName === 'save') {
         await interaction.deferReply();
         const success = await saveTranscript(interaction.channel, config, interaction.user, ticketData);
-        if (success) return interaction.editReply({ content: '✅ تم حفظ الترانسكريبت بنجاح إلى قناة اللوق!' });
+        if (success) return interaction.editReply({ content: '✅ تم إنشاء ملف الترانسكريبت المنسق (HTML) وإرساله إلى روم اللوق!' });
         return interaction.editReply({ content: '❌ تعذر العثور على قناة اللوق المحددة في الإعدادات.' });
       }
 
@@ -628,10 +632,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId === 'ticket_confirm_close') {
-      // 1️⃣ حذف رسالة التأكيد تلقائياً
       await interaction.message.delete().catch(() => {});
-
-      // 2️⃣ إغلاق التكت
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: false });
 
       const closedEmbed = new EmbedBuilder().setTitle('🔒 تم إغلاق التذكرة').setColor(0xef4444);
@@ -645,10 +646,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId === 'ticket_reopen') {
-      // 1️⃣ حذف رسالة الإغلاق فوراً
       await interaction.message.delete().catch(() => {});
-
-      // 2️⃣ إرجاع صلاحيات الفتح
       await interaction.channel.permissionOverwrites.edit(ticketData.ownerId, { ViewChannel: true });
       return interaction.channel.send({ content: `🔓 تم إعادة فتح التذكرة بواسطة ${interaction.user}` });
     }
@@ -656,7 +654,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'ticket_save_log') {
       await interaction.deferReply();
       const success = await saveTranscript(interaction.channel, config, interaction.user, ticketData);
-      if (success) return interaction.editReply({ content: '✅ تم حفظ سجل المحادثة (الترانسكريبت) إلى قناة اللوق المحددة!' });
+      if (success) return interaction.editReply({ content: '✅ تم إنشاء ملف الترانسكريبت المنسق (HTML) وإرساله إلى روم اللوق!' });
       return interaction.editReply({ content: '❌ تعذر العثور على قناة اللوق المحددة في الإعدادات.' });
     }
 
