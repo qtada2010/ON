@@ -27,7 +27,7 @@ const client = new Client({
 });
 
 const PREFIX = '!';
-const ADMIN_PREFIX = '$'; // بريفكس الأوامر الإدارية الجديدة
+const ADMIN_PREFIX = '$';
 
 const panelsDatabase = new Map();
 const statsDatabase = { totalTickets: 0 };
@@ -35,10 +35,10 @@ let ownerLogChannelId = null;
 
 // قاعدة بيانات صلاحيات الأوامر الإدارية
 const adminCmdPermissions = {
-  allCommandsRoleId: '', // رتبة لها صلاحية استخدام كل الأوامر
-  taxRoleId: '',          // رتبة مخصصة لأمر $tax
-  comeRoleId: '',         // رتبة مخصصة لأمر $come
-  sayRoleId: ''           // رتبة مخصصة لأمر $say
+  allCommandsRoleId: '',
+  taxRoleId: '',
+  comeRoleId: '',
+  sayRoleId: ''
 };
 
 // ==========================================
@@ -145,7 +145,6 @@ app.get('/', requireAuth, (req, res) => {
   `);
 });
 
-// صفحة التحكم في صلاحيات الأوامر الإدارية ($tax, $come, $say)
 app.get('/admin-commands', requireAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -439,12 +438,17 @@ async function sendLogError(title, error) {
 client.once('ready', async () => {
   console.log(`🤖 تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
+  // تسجيل أوامر السلاش الكامبة
   const commands = [
+    new SlashCommandBuilder().setName('help').setDescription('عرض قائمة جميع الأوامر وشرحها مع رابط اللوحة'),
+    new SlashCommandBuilder().setName('tax').setDescription('حساب ضريبة برو بوت').addIntegerOption(o => o.setName('amount').setDescription('المبلغ').setRequired(true)),
+    new SlashCommandBuilder().setName('come').setDescription('استدعاء عضو للروم عبر الخاص').addUserOption(o => o.setName('user').setDescription('العضو المراد استدعاؤه').setRequired(true)),
+    new SlashCommandBuilder().setName('say').setDescription('إرسال رسالة باسم البوت').addStringOption(o => o.setName('message').setDescription('الرسالة').setRequired(true)),
     new SlashCommandBuilder().setName('close').setDescription('إغلاق التذكرة الحالية'),
-    new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية (للإدارة العليا فقط)'),
-    new SlashCommandBuilder().setName('save').setDescription('حفظ ترانسكريبت التذكرة في روم اللوق'),
-    new SlashCommandBuilder().setName('add').setDescription('إضافة شخص للتذكرة').addUserOption(o => o.setName('user').setDescription('العضو المراد إضافته').setRequired(true)),
-    new SlashCommandBuilder().setName('remove').setDescription('إزالة شخص من التذكرة').addUserOption(o => o.setName('user').setDescription('العضو المراد إزالته').setRequired(true)),
+    new SlashCommandBuilder().setName('delete').setDescription('حذف التذكرة الحالية (للإدارة العليا)'),
+    new SlashCommandBuilder().setName('save').setDescription('حفظ ترانسكريبت التذكرة تفاعلي (HTML)'),
+    new SlashCommandBuilder().setName('add').setDescription('إضافة شخص للتذكرة').addUserOption(o => o.setName('user').setDescription('العضو').setRequired(true)),
+    new SlashCommandBuilder().setName('remove').setDescription('إزالة شخص من التذكرة').addUserOption(o => o.setName('user').setDescription('العضو').setRequired(true)),
     new SlashCommandBuilder().setName('logowner').setDescription('تحديد روم لوق أخطاء البوت للمالك').addChannelOption(o => o.setName('channel').setDescription('القناة').setRequired(true))
   ];
 
@@ -495,7 +499,6 @@ async function saveTranscript(channel, config, user, ticketData) {
   }
 }
 
-// دالة التحقق من صلاحيات الأوامر الإدارية ($)
 function hasAdminCommandPermission(member, specificRoleId) {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
   if (adminCmdPermissions.allCommandsRoleId && member.roles.cache.has(adminCmdPermissions.allCommandsRoleId)) return true;
@@ -503,32 +506,63 @@ function hasAdminCommandPermission(member, specificRoleId) {
   return false;
 }
 
+// دالة إنشاء إمبد المساعدة ($help)
+function createHelpEmbed(dashboardUrl) {
+  return new EmbedBuilder()
+    .setTitle('📖 قائمة أوامر البوت والمعلومات الشاملة')
+    .setDescription(`أهلاً بك! يمكنك استخدام جميع الأوامر إما عن طريق **البريفكس** أو عن طريق **أوامر السلاش (/)**.\n\n🌐 **لوحة تحكم البوت:** [اضغط هنا للوصول للوحة التحكم](${dashboardUrl})`)
+    .addFields(
+      { 
+        name: '⚙️ الأوامر الإدارية العامة:', 
+        value: 
+          `• **\`$tax <المبلغ>\` | \`/tax\`**\n └ *الشرح:* يحسب ضريبة ProBot المخصومة والمبلغ المطلوب تحويله للوصول كاملاً.\n` +
+          `• **\`$come <@العضو>\` | \`/come\`**\n └ *الشرح:* يرسل إشعار استدعاء مباشر في الخاص للعضو مع رابط القناة الحالية.\n` +
+          `• **\`$say <الرسالة>\` | \`/say\`**\n └ *الشرح:* يرسل رسالة نصية باسم البوت في القناة مع حذف رسالة المرسل.`
+      },
+      { 
+        name: '🎫 أوامر إدارة التذاكر (داخل التكت):', 
+        value: 
+          `• **\`!close\` | \`/close\`**\n └ *الشرح:* يخفي التكت عن صاحبها ويعرض خيارات التحكم بالإغلاق.\n` +
+          `• **\`!save\` | \`/save\`**\n └ *الشرح:* يحفظ ترانسكريبت المحادثة بتنسيق موقع تفاعلي (HTML) في روم اللوق.\n` +
+          `• **\`!delete\` | \`/delete\`**\n └ *الشرح:* يحذف القناة نهائياً (مخصص للإدارة العليا).\n` +
+          `• **\`!add <@العضو>\` | \`/add\`**\n └ *الشرح:* يضيف عضواً جديداً لروم التذكرة.\n` +
+          `• **\`!remove <@العضو>\` | \`/remove\`**\n └ *الشرح:* يزيل عضواً من روم التذكرة.\n` +
+          `• **\`!logowner #الروم\` | \`/logowner\`**\n └ *الشرح:* يحدد القناة المخصصة لإرسال أخطاء البوت للمالك.`
+      }
+    )
+    .setColor(0x0284c7)
+    .setFooter({ text: 'تمت البرمجة بواسطة المبرمج: قتادة (Qtada)' })
+    .setTimestamp();
+}
+
 // --------------------------------------------------
-// معالجة الرسائل والأوامر
+// معالجة الأوامر بالبريفكس
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
-  // ==========================================
-  // الأوامر الإدارية الجديدة (البريفكس $)
-  // ==========================================
+  const dashboardUrl = process.env.RENDER_EXTERNAL_URL || 'https://your-app.onrender.com';
+
+  // امر $help بالبريفكس
+  if (message.content.startsWith(`${ADMIN_PREFIX}help`) || message.content.startsWith(`${PREFIX}help`)) {
+    return message.channel.send({ embeds: [createHelpEmbed(dashboardUrl)] });
+  }
+
+  // الأوامر الإدارية ($)
   if (message.content.startsWith(ADMIN_PREFIX)) {
     const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // 1. أمر حساب الضريبة $tax
     if (command === 'tax') {
       if (!hasAdminCommandPermission(message.member, adminCmdPermissions.taxRoleId)) {
         return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
       }
 
       const amount = parseInt(args[0]);
-      if (isNaN(amount) || amount < 1) {
-        return message.reply('❌ يرجى كتابة مبلغ صحيح! مثال: `$tax 10000`');
-      }
+      if (isNaN(amount) || amount < 1) return message.reply('❌ يرجى كتابة مبلغ صحيح! مثال: `$tax 10000`');
 
-      const netAmount = Math.floor(amount * 0.95); // المبلغ الصافي بعد خصم 5%
-      const grossAmount = Math.ceil(amount * (20 / 19)); // المبلغ المطلوب تحويله لتصل القيمة كاملة
+      const netAmount = Math.floor(amount * 0.95);
+      const grossAmount = Math.ceil(amount * (20 / 19));
 
       const taxEmbed = new EmbedBuilder()
         .setTitle('💰 حاسبة ضريبة ProBot')
@@ -543,7 +577,6 @@ client.on('messageCreate', async (message) => {
       return message.channel.send({ embeds: [taxEmbed] });
     }
 
-    // 2. أمر استدعاء عضو في الخاص $come
     if (command === 'come') {
       if (!hasAdminCommandPermission(message.member, adminCmdPermissions.comeRoleId)) {
         return message.reply('❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!');
@@ -566,7 +599,6 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // 3. أمر جعل البوت يتحدث $say
     if (command === 'say') {
       if (!hasAdminCommandPermission(message.member, adminCmdPermissions.sayRoleId)) {
         return message.reply('❌ لا تمتلك صلاحية استخدام أمر التحدث!');
@@ -580,9 +612,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // ==========================================
-  // أوامر التذاكر والبريفكس (!)
-  // ==========================================
+  // أوامر التذاكر (!)
   if (message.content.startsWith(`${PREFIX}logowner`)) {
     if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
       return message.reply('❌ هذا الأمر يتطلب صلاحيات **Administrator**!');
@@ -657,11 +687,67 @@ client.on('messageCreate', async (message) => {
 });
 
 // --------------------------------------------------
-// التفاعل مع الأزرار وأوامر السلاش (/)
+// معالجة التفاعل وأوامر السلاش (/)
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
   try {
+    const dashboardUrl = process.env.RENDER_EXTERNAL_URL || 'https://your-app.onrender.com';
+
     if (interaction.isChatInputCommand()) {
+      // امر /help بالسلاش
+      if (interaction.commandName === 'help') {
+        return interaction.reply({ embeds: [createHelpEmbed(dashboardUrl)] });
+      }
+
+      if (interaction.commandName === 'tax') {
+        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.taxRoleId)) {
+          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الضريبة!', ephemeral: true });
+        }
+        const amount = interaction.options.getInteger('amount');
+        const netAmount = Math.floor(amount * 0.95);
+        const grossAmount = Math.ceil(amount * (20 / 19));
+
+        const taxEmbed = new EmbedBuilder()
+          .setTitle('💰 حاسبة ضريبة ProBot')
+          .addFields(
+            { name: 'المبلغ الأصلي:', value: `\`${amount.toLocaleString()}\``, inline: true },
+            { name: 'المبلغ الصافي (بعد الخصم):', value: `\`${netAmount.toLocaleString()}\``, inline: true },
+            { name: 'المبلغ الواجب تحويله ليرسل لك المطلوب تماماً:', value: `\`${grossAmount.toLocaleString()}\``, inline: false }
+          )
+          .setColor(0x059669)
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [taxEmbed] });
+      }
+
+      if (interaction.commandName === 'come') {
+        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.comeRoleId)) {
+          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!', ephemeral: true });
+        }
+        const targetUser = interaction.options.getUser('user');
+        try {
+          const comeEmbed = new EmbedBuilder()
+            .setTitle('🔔 لديك استدعاء في السيرفر!')
+            .setDescription(`تم استدعاؤك بواسطة الإداري: **${interaction.user.tag}**\n\n📌 **الروم:** ${interaction.channel}\n🔗 **رابط مباشر:** [اضغط هنا للذهاب للروم](https://discord.com/channels/${interaction.guildId}/${interaction.channelId})`)
+            .setColor(0xeab308)
+            .setTimestamp();
+
+          await targetUser.send({ embeds: [comeEmbed] });
+          return interaction.reply({ content: `✅ تم إرسال إشعار استدعاء بالخاص لـ ${targetUser}.` });
+        } catch (err) {
+          return interaction.reply({ content: '❌ تعذر إرسال رسالة بالخاص للشخص (قد تكون رسائله الخاصة مغلقة).', ephemeral: true });
+        }
+      }
+
+      if (interaction.commandName === 'say') {
+        if (!hasAdminCommandPermission(interaction.member, adminCmdPermissions.sayRoleId)) {
+          return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر التحدث!', ephemeral: true });
+        }
+        const msg = interaction.options.getString('message');
+        await interaction.channel.send(msg);
+        return interaction.reply({ content: '✅ تم إرسال الرسالة بنجاح!', ephemeral: true });
+      }
+
       if (interaction.commandName === 'logowner') {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
           return interaction.reply({ content: '❌ يتطلب صلاحية Administrator!', ephemeral: true });
