@@ -12,51 +12,52 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
-const mongoose = require('mongoose');
+const { Pool } = require('pg');
 const discordTranscripts = require('discord-html-transcripts');
 
 // ==========================================
-// 1. الاتصال بقاعدة البيانات MongoDB
+// 1. الاتصال بقاعدة البيانات PostgreSQL
 // ==========================================
-const MONGO_URI = process.env.MONGO_URI;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
+});
 
-if (MONGO_URI) {
-  mongoose.connect(MONGO_URI)
-    .then(() => console.log('🍃 تم الاتصال بقاعدة بيانات MongoDB بنجاح!'))
-    .catch(err => console.error('❌ خطأ في الاتصال بـ MongoDB:', err));
-} else {
-  console.warn('⚠️ تحذير: لم يتم إدخال متغير MONGO_URI في البيئة!');
+// إنشاء الجداول تلقائياً إذا لم تكن موجودة
+async function initDatabase() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS panels (
+        panel_id VARCHAR(100) PRIMARY KEY,
+        channel_id VARCHAR(100),
+        category_id VARCHAR(100),
+        admin_role_id VARCHAR(100),
+        high_admin_role_id VARCHAR(100),
+        log_channel_id VARCHAR(100),
+        title TEXT,
+        description TEXT,
+        welcome_message TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS permissions (
+        key VARCHAR(50) PRIMARY KEY,
+        all_commands_role_id VARCHAR(100) DEFAULT '',
+        tax_role_id VARCHAR(100) DEFAULT '',
+        come_role_id VARCHAR(100) DEFAULT '',
+        say_role_id VARCHAR(100) DEFAULT ''
+      );
+
+      CREATE TABLE IF NOT EXISTS stats (
+        key VARCHAR(50) PRIMARY KEY,
+        total_tickets INT DEFAULT 0
+      );
+    `);
+    console.log('🐘 تم الاتصال بقاعدة بيانات PostgreSQL وتجهيز الجداول بنجاح!');
+  } catch (err) {
+    console.error('❌ خطأ في إعداد قاعدة البيانات PostgreSQL:', err);
+  }
 }
-
-// تعريف نماذج البيانات (Mongoose Schemas)
-const panelSchema = new mongoose.Schema({
-  panelId: { type: String, required: true, unique: true },
-  channelId: String,
-  categoryId: String,
-  adminRoleId: String,
-  highAdminRoleId: String,
-  logChannelId: String,
-  title: String,
-  description: String,
-  welcomeMessage: String
-});
-
-const permissionSchema = new mongoose.Schema({
-  key: { type: String, default: 'main_permissions', unique: true },
-  allCommandsRoleId: { type: String, default: '' },
-  taxRoleId: { type: String, default: '' },
-  comeRoleId: { type: String, default: '' },
-  sayRoleId: { type: String, default: '' }
-});
-
-const statSchema = new mongoose.Schema({
-  key: { type: String, default: 'main_stats', unique: true },
-  totalTickets: { type: Number, default: 0 }
-});
-
-const PanelModel = mongoose.model('Panel', panelSchema);
-const PermissionModel = mongoose.model('Permission', permissionSchema);
-const StatModel = mongoose.model('Stat', statSchema);
+initDatabase();
 
 // ==========================================
 // 2. إنشاء عميل ديسكورد (Discord Client)
@@ -166,7 +167,7 @@ app.get('/', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>لوحة تحكم البوت الشاملة 🎫</h1>
-        <p style="text-align:center; color: #94a3b8;">جميع البيانات تُحفظ دائمًا على قاعدة بيانات MongoDB ولن تضيع إطلاقًا عند إعادة التشغيل.</p>
+        <p style="text-align:center; color: #94a3b8;">جميع البيانات تُحفظ بشكل دائم في PostgreSQL على Render.</p>
         <div style="text-align:center; margin-top: 30px;">
           <a href="/panel" class="btn">إدارة لوحات التذاكر 🛠️</a>
           <a href="/admin-commands" class="btn" style="background:#8b5cf6;">صلاحيات الأوامر الإدارية 🛡️</a>
@@ -179,7 +180,8 @@ app.get('/', requireAuth, (req, res) => {
 });
 
 app.get('/admin-commands', requireAuth, async (req, res) => {
-  let perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
+  const result = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
+  const perms = result.rows[0] || {};
 
   res.send(`
     <!DOCTYPE html>
@@ -212,16 +214,16 @@ app.get('/admin-commands', requireAuth, async (req, res) => {
         <h1>🛡️ التحكم في صلاحيات الأوامر الإدارية ($)</h1>
         <form action="/save-admin-commands" method="POST">
           <label>⭐ آيدي رتبة الإدارة العامة (تستطيع استخدام كل الأوامر):</label>
-          <input type="text" name="allCommandsRoleId" value="${perms.allCommandsRoleId || ''}" placeholder="أدخل ID الرتبة الشاملة">
+          <input type="text" name="allCommandsRoleId" value="${perms.all_commands_role_id || ''}" placeholder="أدخل ID الرتبة الشاملة">
 
           <label>💰 آيدي الرتبة المسموح لها باستخدام امر $tax:</label>
-          <input type="text" name="taxRoleId" value="${perms.taxRoleId || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="taxRoleId" value="${perms.tax_role_id || ''}" placeholder="أدخل ID الرتبة">
 
           <label>📢 آيدي الرتبة المسموح لها باستخدام امر $come:</label>
-          <input type="text" name="comeRoleId" value="${perms.comeRoleId || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="comeRoleId" value="${perms.come_role_id || ''}" placeholder="أدخل ID الرتبة">
 
           <label>💬 آيدي الرتبة المسموح لها باستخدام امر $say:</label>
-          <input type="text" name="sayRoleId" value="${perms.sayRoleId || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="sayRoleId" value="${perms.say_role_id || ''}" placeholder="أدخل ID الرتبة">
 
           <button type="submit">حفظ التغييرات 💾</button>
         </form>
@@ -233,31 +235,30 @@ app.get('/admin-commands', requireAuth, async (req, res) => {
 
 app.post('/save-admin-commands', requireAuth, async (req, res) => {
   const { allCommandsRoleId, taxRoleId, comeRoleId, sayRoleId } = req.body;
-  
-  await PermissionModel.findOneAndUpdate(
-    { key: 'main_permissions' },
-    { 
-      allCommandsRoleId: allCommandsRoleId.trim(),
-      taxRoleId: taxRoleId.trim(),
-      comeRoleId: comeRoleId.trim(),
-      sayRoleId: sayRoleId.trim()
-    },
-    { upsert: true, new: true }
-  );
 
-  res.send('<h2>✅ تم حفظ الصلاحيات دائماً في MongoDB!</h2><a href="/admin-commands">العودة</a>');
+  await pool.query(`
+    INSERT INTO permissions (key, all_commands_role_id, tax_role_id, come_role_id, say_role_id)
+    VALUES ('main_permissions', $1, $2, $3, $4)
+    ON CONFLICT (key) DO UPDATE SET
+      all_commands_role_id = EXCLUDED.all_commands_role_id,
+      tax_role_id = EXCLUDED.tax_role_id,
+      come_role_id = EXCLUDED.come_role_id,
+      say_role_id = EXCLUDED.say_role_id;
+  `, [allCommandsRoleId.trim(), taxRoleId.trim(), comeRoleId.trim(), sayRoleId.trim()]);
+
+  res.send('<h2>✅ تم حفظ الصلاحيات دائماً في PostgreSQL!</h2><a href="/admin-commands">العودة</a>');
 });
 
 app.get('/panel', requireAuth, async (req, res) => {
-  const panels = await PanelModel.find({});
+  const result = await pool.query('SELECT * FROM panels');
   let panelsListHTML = '';
 
-  panels.forEach(p => {
+  result.rows.forEach(p => {
     panelsListHTML += `
       <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
-        <h3>📌 المعرف: ${p.panelId} - ${p.title}</h3>
-        <p>روم اللوحة: ${p.channelId} | رتبة الإدارة: ${p.adminRoleId}</p>
-        <a href="/edit-panel/${p.panelId}" style="color:#38bdf8; font-weight:bold;">✏️ تعديل هذه اللوحة</a>
+        <h3>📌 المعرف: ${p.panel_id} - ${p.title}</h3>
+        <p>روم اللوحة: ${p.channel_id} | رتبة الإدارة: ${p.admin_role_id}</p>
+        <a href="/edit-panel/${p.panel_id}" style="color:#38bdf8; font-weight:bold;">✏️ تعديل هذه اللوحة</a>
       </div>
     `;
   });
@@ -332,7 +333,8 @@ app.get('/panel', requireAuth, async (req, res) => {
 });
 
 app.get('/edit-panel/:id', async (req, res) => {
-  const panel = await PanelModel.findOne({ panelId: req.params.id });
+  const result = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
+  const panel = result.rows[0];
   if (!panel) return res.send('اللوحة غير موجودة');
 
   res.send(`
@@ -340,7 +342,7 @@ app.get('/edit-panel/:id', async (req, res) => {
     <html lang="ar" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>تعديل اللوحة ${panel.panelId}</title>
+      <title>تعديل اللوحة ${panel.panel_id}</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #f8fafc; margin:20px; }
         .container { max-width: 800px; margin: auto; background: #1e293b; padding: 30px; border-radius: 12px; }
@@ -352,24 +354,24 @@ app.get('/edit-panel/:id', async (req, res) => {
     </head>
     <body>
       <div class="container">
-        <h1>✏️ تعديل اللوحة: ${panel.panelId}</h1>
+        <h1>✏️ تعديل اللوحة: ${panel.panel_id}</h1>
         <form action="/save-panel" method="POST">
-          <input type="hidden" name="panelId" value="${panel.panelId}">
+          <input type="hidden" name="panelId" value="${panel.panel_id}">
 
           <label>آيدي روم اللوحة:</label>
-          <input type="text" name="channelId" value="${panel.channelId}" required>
+          <input type="text" name="channelId" value="${panel.channel_id}" required>
 
           <label>آيدي كاتيجوري التذاكر:</label>
-          <input type="text" name="categoryId" value="${panel.categoryId}" required>
+          <input type="text" name="categoryId" value="${panel.category_id}" required>
 
           <label>آيدي رتبة الإدارة العادية:</label>
-          <input type="text" name="adminRoleId" value="${panel.adminRoleId}" required>
+          <input type="text" name="adminRoleId" value="${panel.admin_role_id}" required>
 
           <label>آيدي رتبة الإدارة العليا:</label>
-          <input type="text" name="highAdminRoleId" value="${panel.highAdminRoleId}" required>
+          <input type="text" name="highAdminRoleId" value="${panel.high_admin_role_id}" required>
 
           <label>آيدي روم اللوق:</label>
-          <input type="text" name="logChannelId" value="${panel.logChannelId}" required>
+          <input type="text" name="logChannelId" value="${panel.log_channel_id}" required>
 
           <label>عنوان اللوحة:</label>
           <input type="text" name="title" value="${panel.title}" required>
@@ -378,7 +380,7 @@ app.get('/edit-panel/:id', async (req, res) => {
           <textarea name="description" rows="2" required>${panel.description}</textarea>
 
           <label>رسالة الترحيب بالتكت:</label>
-          <textarea name="welcomeMessage" rows="2" required>${panel.welcomeMessage}</textarea>
+          <textarea name="welcomeMessage" rows="2" required>${panel.welcome_message}</textarea>
 
           <button type="submit">حفظ التحديثات بإعادة الإرسال 🔄</button>
         </form>
@@ -391,11 +393,19 @@ app.get('/edit-panel/:id', async (req, res) => {
 app.post('/save-panel', requireAuth, async (req, res) => {
   const data = req.body;
 
-  await PanelModel.findOneAndUpdate(
-    { panelId: data.panelId },
-    data,
-    { upsert: true, new: true }
-  );
+  await pool.query(`
+    INSERT INTO panels (panel_id, channel_id, category_id, admin_role_id, high_admin_role_id, log_channel_id, title, description, welcome_message)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (panel_id) DO UPDATE SET
+      channel_id = EXCLUDED.channel_id,
+      category_id = EXCLUDED.category_id,
+      admin_role_id = EXCLUDED.admin_role_id,
+      high_admin_role_id = EXCLUDED.high_admin_role_id,
+      log_channel_id = EXCLUDED.log_channel_id,
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      welcome_message = EXCLUDED.welcome_message;
+  `, [data.panelId, data.channelId, data.categoryId, data.adminRoleId, data.highAdminRoleId, data.logChannelId, data.title, data.description, data.welcomeMessage]);
 
   try {
     const channel = await client.channels.fetch(data.channelId);
@@ -414,7 +424,7 @@ app.post('/save-panel', requireAuth, async (req, res) => {
       );
 
       await channel.send({ embeds: [embed], components: [row] });
-      return res.send('<h2>✅ تم حفظ اللوحة في قاعدة البيانات وإرسالها للسيرفر بنجاح!</h2><a href="/panel">العودة للوحة التحكم</a>');
+      return res.send('<h2>✅ تم حفظ اللوحة في PostgreSQL وإرسالها للسيرفر بنجاح!</h2><a href="/panel">العودة للوحة التحكم</a>');
     }
   } catch (err) {
     sendLogError('خطأ أثناء إرسال اللوحة:', err);
@@ -423,7 +433,8 @@ app.post('/save-panel', requireAuth, async (req, res) => {
 });
 
 app.get('/stats', requireAuth, async (req, res) => {
-  const statDoc = await StatModel.findOne({ key: 'main_stats' }) || { totalTickets: 0 };
+  const result = await pool.query('SELECT total_tickets FROM stats WHERE key = $1', ['main_stats']);
+  const totalTickets = result.rows[0] ? result.rows[0].total_tickets : 0;
 
   res.send(`
     <!DOCTYPE html>
@@ -451,7 +462,7 @@ app.get('/stats', requireAuth, async (req, res) => {
       </nav>
       <div class="container">
         <h1>📊 إحصائيات التذاكر الإجمالية</h1>
-        <h2>إجمالي التذاكر التي تم فتحها: ${statDoc.totalTickets}</h2>
+        <h2>إجمالي التذاكر التي تم فتحها: ${totalTickets}</h2>
       </div>
     </body>
     </html>
@@ -517,7 +528,7 @@ async function getTicketInfo(channel) {
 }
 
 async function saveTranscript(channel, config, user, ticketData) {
-  const logChannel = channel.guild.channels.cache.get(config.logChannelId);
+  const logChannel = channel.guild.channels.cache.get(config.log_channel_id);
   if (!logChannel) return false;
 
   try {
@@ -532,7 +543,7 @@ async function saveTranscript(channel, config, user, ticketData) {
 
     const logEmbed = new EmbedBuilder()
       .setTitle('🌐 سجل ترانسكريبت تفاعلي (HTML)')
-      .setDescription('اضغط على الملف المرفق أدناه وفتحه في أي متصفح لقراءة التكت بتصميم ديسكورد الكامل!')
+      .setDescription('اضغط على الملف المرفق أدناه وقم بتنزيله لفتحه في المتصفح لقراءة التكت بتصميم ديسكورد!')
       .addFields(
         { name: 'التكت:', value: channel.name, inline: true },
         { name: 'صاحب التكت:', value: `<@${ticketData.ownerId}>`, inline: true },
@@ -541,6 +552,7 @@ async function saveTranscript(channel, config, user, ticketData) {
       .setColor(0x0284c7)
       .setTimestamp();
 
+    // إرسال الـ Embed والملف فقط كملف مرفق نقي
     await logChannel.send({ embeds: [logEmbed], files: [attachment] });
     return true;
   } catch (err) {
@@ -551,10 +563,11 @@ async function saveTranscript(channel, config, user, ticketData) {
 
 async function hasAdminCommandPermission(member, specificRoleId) {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  const perms = await PermissionModel.findOne({ key: 'main_permissions' });
+  const result = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
+  const perms = result.rows[0];
   if (!perms) return false;
 
-  if (perms.allCommandsRoleId && member.roles.cache.has(perms.allCommandsRoleId)) return true;
+  if (perms.all_commands_role_id && member.roles.cache.has(perms.all_commands_role_id)) return true;
   if (specificRoleId && member.roles.cache.has(specificRoleId)) return true;
   return false;
 }
@@ -602,10 +615,11 @@ client.on('messageCreate', async (message) => {
   if (message.content.startsWith(ADMIN_PREFIX)) {
     const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
-    const perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
+    const result = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
+    const perms = result.rows[0] || {};
 
     if (command === 'tax') {
-      const allowed = await hasAdminCommandPermission(message.member, perms.taxRoleId);
+      const allowed = await hasAdminCommandPermission(message.member, perms.tax_role_id);
       if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
 
       const amount = parseInt(args[0]);
@@ -628,7 +642,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (command === 'come') {
-      const allowed = await hasAdminCommandPermission(message.member, perms.comeRoleId);
+      const allowed = await hasAdminCommandPermission(message.member, perms.come_role_id);
       if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!');
 
       const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
@@ -649,7 +663,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (command === 'say') {
-      const allowed = await hasAdminCommandPermission(message.member, perms.sayRoleId);
+      const allowed = await hasAdminCommandPermission(message.member, perms.say_role_id);
       if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر التحدث!');
 
       const textToSay = args.join(' ');
@@ -678,11 +692,12 @@ client.on('messageCreate', async (message) => {
   const ticketData = await getTicketInfo(message.channel);
   if (!ticketData) return;
 
-  const config = await PanelModel.findOne({ panelId: ticketData.panelId });
+  const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [ticketData.panelId]);
+  const config = panelRes.rows[0];
   if (!config) return;
 
-  const isAdmin = message.member.roles.cache.has(config.adminRoleId);
-  const isHighAdmin = message.member.roles.cache.has(config.highAdminRoleId);
+  const isAdmin = message.member.roles.cache.has(config.admin_role_id);
+  const isHighAdmin = message.member.roles.cache.has(config.high_admin_role_id);
   const isOwner = message.author.id === ticketData.ownerId;
 
   if (command === 'close') {
@@ -742,10 +757,11 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ embeds: [createHelpEmbed(dashboardUrl)] });
       }
 
-      const perms = await PermissionModel.findOne({ key: 'main_permissions' }) || {};
+      const result = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
+      const perms = result.rows[0] || {};
 
       if (interaction.commandName === 'tax') {
-        const allowed = await hasAdminCommandPermission(interaction.member, perms.taxRoleId);
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.tax_role_id);
         if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الضريبة!', ephemeral: true });
 
         const amount = interaction.options.getInteger('amount');
@@ -766,7 +782,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (interaction.commandName === 'come') {
-        const allowed = await hasAdminCommandPermission(interaction.member, perms.comeRoleId);
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.come_role_id);
         if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر الاستدعاء!', ephemeral: true });
 
         const targetUser = interaction.options.getUser('user');
@@ -785,7 +801,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (interaction.commandName === 'say') {
-        const allowed = await hasAdminCommandPermission(interaction.member, perms.sayRoleId);
+        const allowed = await hasAdminCommandPermission(interaction.member, perms.say_role_id);
         if (!allowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية استخدام أمر التحدث!', ephemeral: true });
 
         const msg = interaction.options.getString('message');
@@ -805,11 +821,12 @@ client.on('interactionCreate', async (interaction) => {
       const ticketData = await getTicketInfo(interaction.channel);
       if (!ticketData) return interaction.reply({ content: '❌ هذا الأمر يشتغل داخل التذاكر فقط!', ephemeral: true });
 
-      const config = await PanelModel.findOne({ panelId: ticketData.panelId });
+      const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [ticketData.panelId]);
+      const config = panelRes.rows[0];
       if (!config) return interaction.reply({ content: '❌ إعدادات اللوحة غير متوفرة!', ephemeral: true });
 
-      const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
-      const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
+      const isAdmin = interaction.member.roles.cache.has(config.admin_role_id);
+      const isHighAdmin = interaction.member.roles.cache.has(config.high_admin_role_id);
       const isOwner = interaction.user.id === ticketData.ownerId;
 
       if (interaction.commandName === 'close') {
@@ -858,32 +875,32 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.deferReply({ ephemeral: true });
 
       const panelId = interaction.customId.replace('open_ticket_', '');
-      const config = await PanelModel.findOne({ panelId: panelId });
+      const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [panelId]);
+      const config = panelRes.rows[0];
       if (!config) return interaction.editReply({ content: '❌ لم يتم العثور على اللوحة في قاعدة البيانات!' });
 
       const ticketChannel = await interaction.guild.channels.create({
         name: `ticket-${interaction.user.username}`,
         type: ChannelType.GuildText,
-        parent: config.categoryId,
+        parent: config.category_id,
         permissionOverwrites: [
           { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
           { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.adminRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.highAdminRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+          { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+          { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
         ]
       });
 
-      await StatModel.findOneAndUpdate(
-        { key: 'main_stats' },
-        { $inc: { totalTickets: 1 } },
-        { upsert: true }
-      );
+      await pool.query(`
+        INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1)
+        ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;
+      `);
 
       await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: panelId }));
 
       const welcomeEmbed = new EmbedBuilder()
         .setTitle(`تذكرة دعم فني جديدة`)
-        .setDescription(`${config.welcomeMessage}\n\n👤 **صاحب التذكرة:** ${interaction.user}`)
+        .setDescription(`${config.welcome_message}\n\n👤 **صاحب التذكرة:** ${interaction.user}`)
         .setColor(0x0284c7);
 
       const buttonsRow = new ActionRowBuilder().addComponents(
@@ -891,7 +908,7 @@ client.on('interactionCreate', async (interaction) => {
       );
 
       await ticketChannel.send({ 
-        content: `${interaction.user} | <@&${config.adminRoleId}> | <@&${config.highAdminRoleId}>`, 
+        content: `${interaction.user} | <@&${config.admin_role_id}> | <@&${config.high_admin_role_id}>`, 
         embeds: [welcomeEmbed], 
         components: [buttonsRow] 
       });
@@ -903,11 +920,12 @@ client.on('interactionCreate', async (interaction) => {
     const ticketData = await getTicketInfo(interaction.channel);
     if (!ticketData) return;
 
-    const config = await PanelModel.findOne({ panelId: ticketData.panelId });
+    const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [ticketData.panelId]);
+    const config = panelRes.rows[0];
     if (!config) return;
 
-    const isAdmin = interaction.member.roles.cache.has(config.adminRoleId);
-    const isHighAdmin = interaction.member.roles.cache.has(config.highAdminRoleId);
+    const isAdmin = interaction.member.roles.cache.has(config.admin_role_id);
+    const isHighAdmin = interaction.member.roles.cache.has(config.high_admin_role_id);
     const isOwner = interaction.user.id === ticketData.ownerId;
 
     if (interaction.isButton() && interaction.customId === 'ticket_close_req') {
