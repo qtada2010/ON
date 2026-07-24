@@ -1,7 +1,7 @@
 {
   "name": "discord-ticket-bot",
   "version": "1.0.0",
-  "description": "Discord Ticket Bot with PostgreSQL Storage",
+  "description": "Discord Ticket Bot with Select Menus & Buttons via PostgreSQL",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
