@@ -12,10 +12,10 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const express = require('express');
-const discordTranscripts = require('discord-html-transcripts'); // مكتبة حفظ الترانسكريبت كصفحة ويب
+const discordTranscripts = require('discord-html-transcripts');
 
 // ==========================================
-// 1. إنشاء العميل (Client)
+// 1. إنشاء العميل (Client) - يجب أن يكون هنا قبل أي استخدام له
 // ==========================================
 const client = new Client({
   intents: [
@@ -385,15 +385,13 @@ async function getTicketInfo(channel) {
   try { return JSON.parse(channel.topic); } catch (e) { return null; }
 }
 
-// دالة جديدة لتوليد ترانسكريبت تفاعلي مصمم بتنسيق HTML
 async function saveTranscript(channel, config, user, ticketData) {
   const logChannel = channel.guild.channels.cache.get(config.logChannelId);
   if (!logChannel) return false;
 
   try {
-    // إنشاء ملف HTML متكامل يبدو كـ Discord
     const attachment = await discordTranscripts.createTranscript(channel, {
-      limit: -1, // جلب كافة الرسائل
+      limit: -1,
       returnType: 'attachment',
       filename: `${channel.name}-transcript.html`,
       saveImages: true,
