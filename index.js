@@ -27,6 +27,7 @@ const pool = new Pool({
 
 async function initDatabase() {
   try {
+    // 1. إنشاء جدول اللوحات الأساسي
     await pool.query(`
       CREATE TABLE IF NOT EXISTS panels (
         panel_id VARCHAR(100) PRIMARY KEY,
@@ -39,7 +40,15 @@ async function initDatabase() {
         description TEXT,
         type VARCHAR(20) DEFAULT 'buttons'
       );
+    `);
 
+    // 2. إصلاح وترقيع قاعدة البيانات (إضافة عمود type في حال لم يكن موجوداً)
+    await pool.query(`
+      ALTER TABLE panels ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'buttons';
+    `);
+
+    // 3. إنشاء باقي الجداول
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS panel_options (
         id SERIAL PRIMARY KEY,
         panel_id VARCHAR(100) REFERENCES panels(panel_id) ON DELETE CASCADE,
@@ -63,7 +72,7 @@ async function initDatabase() {
         total_tickets INT DEFAULT 0
       );
     `);
-    console.log('🐘 تم تجهيز PostgreSQL والجداول بنجاح!');
+    console.log('🐘 تم تجهيز وتحديث هيكل PostgreSQL بنجاح!');
   } catch (err) {
     console.error('❌ خطأ في إعداد قاعدة البيانات:', err);
   }
@@ -173,7 +182,7 @@ app.get('/', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>لوحة تحكم البوت الشاملة 🎫</h1>
-        <p style="text-align:center; color:#94a3b8;">يدعم الآن اللوحات المنسدلة (Select Menu) واللوحات بأزرار غير محدودة!</p>
+        <p style="text-align:center; color:#94a3b8;">تم تحديث قاعدة البيانات وإصلاح جداول النظام بنجاح!</p>
         <div style="text-align:center; margin-top: 30px;">
           <a href="/panel" class="btn">إدارة وإنشاء اللوحات 🛠️</a>
           <a href="/admin-commands" class="btn" style="background:#8b5cf6;">صلاحيات الأوامر 🛡️</a>
@@ -230,7 +239,7 @@ app.get('/panel', requireAuth, async (req, res) => {
         <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1>➕ إنشاء لوحة تذاكر جديدة</h1>
+        <h1>➕ إنشاء / إعداد لوحة تذاكر</h1>
         <form action="/create-panel" method="POST">
           <label>معرف اللوحة الفريد (Panel ID):</label>
           <input type="text" name="panelId" placeholder="support_menu" required>
@@ -262,7 +271,7 @@ app.get('/panel', requireAuth, async (req, res) => {
           <label>وصف اللوحة:</label>
           <textarea name="description" rows="2" required>اختر نوع الخدمة أو الوسيط من القائمة بالأسفل لفتح التكت.</textarea>
 
-          <button type="submit">إنشاء اللوحة والانتقال لإضافة الخيارات/الأزرار ➡️</button>
+          <button type="submit">حفظ اللوحة والانتقال للخيارات ➡️</button>
         </form>
 
         <hr style="margin: 30px 0; border-color: #334155;">
@@ -303,7 +312,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
 
   optionsRes.rows.forEach((opt, index) => {
     optionsHTML += `
-      <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155; position:relative;">
+      <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
         <span style="color:#eab308; font-weight:bold;">#${index + 1} الخيار/الزر:</span> ${opt.label} (${opt.emoji || 'بدون إيموجي'})
         <p style="margin:5px 0; color:#94a3b8; font-size:14px;">${opt.description || 'لا يوجد وصف'}</p>
         <p style="margin:5px 0; color:#38bdf8; font-size:13px;">الترحيب: ${opt.welcome_message}</p>
@@ -323,9 +332,9 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
         nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
         nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
         .container { max-width: 850px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; }
-        h1, h2, h3 { color: #38bdf8; }
+        h1, h2 { color: #38bdf8; }
         label { display: block; margin-top: 10px; font-weight: bold; }
-        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        input, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
         .btn-add { background: #10b981; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 15px; }
         .btn-send { background: #0284c7; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 25px; font-size: 16px; }
       </style>
@@ -341,7 +350,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
         <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1>⚙️ إعداد الخيارات/الأزرار للوحة: ${panel.title}</h1>
+        <h1>⚙️ إعداد الخيارات للوحة: ${panel.title}</h1>
         <p>النوع الحالي: <strong>${panel.type === 'select' ? 'قائمة منسدلة (Select Menu)' : 'أزرار (Buttons)'}</strong></p>
 
         <h2>➕ إضافة زر / خيار جديد:</h2>
@@ -354,10 +363,10 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
           <label>وصف الخيار (يظهر تحت الاسم بالقائمة المنسدلة):</label>
           <input type="text" name="description" placeholder="يمكنه التوسط لأي مبلغ لا يتعدى 15 مليون">
 
-          <label>الإيموجي (اختياري - يفضل ترك فارغ أو وضع إيموجي حقيقي):</label>
+          <label>الإيموجي (اختياري):</label>
           <input type="text" name="emoji" placeholder="مثال: 🤝">
 
-          <label>رسالة الترحيب الخاّصة عند فتح هذا الخيار:</label>
+          <label>رسالة الترحيب الخاصة عند فتح هذا الخيار:</label>
           <textarea name="welcomeMessage" rows="2" required>أهلاً بك! تم فتح التذكرة لطلب وسيط جديد، انتظر رد الإدارة.</textarea>
 
           <button type="submit" class="btn-add">➕ إضافة الخيار للقائمة</button>
@@ -365,7 +374,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
 
         <hr style="margin: 30px 0; border-color: #334155;">
         <h2>📋 الخيارات والأزرار المضافة (${optionsRes.rows.length}):</h2>
-        ${optionsHTML || '<p>لا يوجد خيارات مضافة لهذه اللوحة بعد. أضف خياراً بال الأعلى!</p>'}
+        ${optionsHTML || '<p>لا يوجد خيارات مضافة لهذه اللوحة بعد.</p>'}
 
         ${optionsRes.rows.length > 0 ? `
           <form action="/publish-panel" method="POST">
@@ -395,9 +404,6 @@ app.get('/delete-option/:optId/:panelId', requireAuth, async (req, res) => {
   res.redirect(`/edit-panel/${req.params.panelId}`);
 });
 
-// ==========================================
-// تصحيح دالة إرسال ونشر اللوحة (مُصلحة 100%)
-// ==========================================
 app.post('/publish-panel', requireAuth, async (req, res) => {
   const panelId = req.body.panelId;
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [panelId]);
@@ -410,7 +416,7 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
 
   try {
     const channel = await client.channels.fetch(panel.channel_id);
-    if (!channel) return res.send('❌ تعذر الوصول لروم اللوحة! تأكد من آيدي القناة وأن البوت موجود بالسيرفر.');
+    if (!channel) return res.send('❌ تعذر الوصول لروم اللوحة!');
 
     const embed = new EmbedBuilder()
       .setTitle(panel.title)
@@ -468,7 +474,7 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
     }
 
     await channel.send({ embeds: [embed], components: components });
-    res.send('<h2>✅ تم نشر اللوحة وتحديثها بنجاح داخل ديسكورد!</h2><a href="/panel">العودة للوحة التحكم</a>');
+    res.send('<h2>✅ تم نشر اللوحة بنجاح داخل ديسكورد!</h2><a href="/panel">العودة للوحة التحكم</a>');
   } catch (err) {
     console.error('خطأ أثناء نشر اللوحة:', err);
     res.send(`❌ حدث خطأ أثناء الإرسال: ${err.message}`);
@@ -510,16 +516,16 @@ app.get('/admin-commands', requireAuth, async (req, res) => {
         <h1>🛡️ التحكم في صلاحيات الأوامر الإدارية ($)</h1>
         <form action="/save-admin-commands" method="POST">
           <label>⭐ آيدي رتبة الإدارة العامة (تستطيع استخدام كل الأوامر):</label>
-          <input type="text" name="allCommandsRoleId" value="${perms.all_commands_role_id || ''}" placeholder="أدخل ID الرتبة الشاملة">
+          <input type="text" name="allCommandsRoleId" value="${perms.all_commands_role_id || ''}">
 
           <label>💰 آيدي الرتبة المسموح لها باستخدام امر $tax:</label>
-          <input type="text" name="taxRoleId" value="${perms.tax_role_id || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="taxRoleId" value="${perms.tax_role_id || ''}">
 
           <label>📢 آيدي الرتبة المسموح لها باستخدام امر $come:</label>
-          <input type="text" name="comeRoleId" value="${perms.come_role_id || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="comeRoleId" value="${perms.come_role_id || ''}">
 
           <label>💬 آيدي الرتبة المسموح لها باستخدام امر $say:</label>
-          <input type="text" name="sayRoleId" value="${perms.say_role_id || ''}" placeholder="أدخل ID الرتبة">
+          <input type="text" name="sayRoleId" value="${perms.say_role_id || ''}">
 
           <button type="submit">حفظ التغييرات 💾</button>
         </form>
@@ -707,7 +713,6 @@ function createHelpEmbed(dashboardUrl) {
     .setFooter({ text: 'تمت البرمجة بواسطة المبرمج: قتادة (Qtada)' });
 }
 
-// إنشاء التذكر المشتركة للنوعين
 async function handleTicketCreation(interaction, optionId) {
   try {
     await interaction.deferReply({ ephemeral: true });
@@ -763,7 +768,7 @@ async function handleTicketCreation(interaction, optionId) {
 }
 
 // --------------------------------------------------
-// معالجة الرسائل للأوامر
+// معالجة الرسائل
 // --------------------------------------------------
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
@@ -784,7 +789,7 @@ client.on('messageCreate', async (message) => {
       if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر الضريبة!');
 
       const amount = parseInt(args[0]);
-      if (isNaN(amount) || amount < 1) return message.reply('❌ يرجى كتابة مبلغ صحيح! مثال: `$tax 10000`');
+      if (isNaN(amount) || amount < 1) return message.reply('❌ يرجى كتابة مبلغ صحيح!');
 
       const netAmount = Math.floor(amount * 0.95);
       const grossAmount = Math.ceil(amount * (20 / 19));
@@ -793,8 +798,8 @@ client.on('messageCreate', async (message) => {
         .setTitle('💰 حاسبة ضريبة ProBot')
         .addFields(
           { name: 'المبلغ الأصلي:', value: `\`${amount.toLocaleString()}\``, inline: true },
-          { name: 'المبلغ الصافي (بعد الخصم):', value: `\`${netAmount.toLocaleString()}\``, inline: true },
-          { name: 'المبلغ الواجب تحويله ليرسل لك المطلوب تماماً:', value: `\`${grossAmount.toLocaleString()}\``, inline: false }
+          { name: 'المبلغ الصافي:', value: `\`${netAmount.toLocaleString()}\``, inline: true },
+          { name: 'المبلغ الواجب تحويله:', value: `\`${grossAmount.toLocaleString()}\``, inline: false }
         )
         .setColor(0x059669);
 
@@ -885,7 +890,7 @@ client.on('messageCreate', async (message) => {
   if (command === 'add') {
     if (!isAdmin && !isHighAdmin) return message.reply('❌ مخصص للإدارة فقط!');
     const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
-    if (!targetMember) return message.reply('❌ يرجى منشن الشخص أو كتابة آيديه!');
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص!');
 
     await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true });
     return message.reply(`✅ تم إضافة ${targetMember} إلى التذكرة.`);
@@ -902,7 +907,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // --------------------------------------------------
-// معالجة التفاعلات (أزرار + القوائم المنسدلة)
+// معالجة التفاعلات (أزرار والقوائم)
 // --------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
   try {
@@ -912,19 +917,16 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.commandName === 'help') return interaction.reply({ embeds: [createHelpEmbed(dashboardUrl)] });
     }
 
-    // فتح تذكرة عبر القائمة المنسدلة (Select Menu)
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
       const selectedOptionId = interaction.values[0];
       return handleTicketCreation(interaction, selectedOptionId);
     }
 
-    // فتح تذكرة عبر الأزرار (Buttons)
     if (interaction.isButton() && interaction.customId.startsWith('ticket_btn_')) {
       const optionId = interaction.customId.replace('ticket_btn_', '');
       return handleTicketCreation(interaction, optionId);
     }
 
-    // أزرار التحكم بداخل التكت
     if (!interaction.guild || !interaction.channel.topic) return;
     const ticketData = await getTicketInfo(interaction.channel);
     if (!ticketData) return;
@@ -974,7 +976,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'ticket_save_log') {
       await interaction.deferReply();
       const success = await saveTranscript(interaction.channel, config, interaction.user, ticketData);
-      if (success) return interaction.editReply({ content: '✅ تم إنشاء ملف الترانسكريبت المنسق (HTML) وإرساله إلى روم اللوق!' });
+      if (success) return interaction.editReply({ content: '✅ تم إنشاء ملف الترانسكريبت وإرساله إلى روم اللوق!' });
       return interaction.editReply({ content: '❌ تعذر العثور على قناة اللوق.' });
     }
 
