@@ -8,18 +8,17 @@ const {
   StringSelectMenuOptionBuilder 
 } = require('discord.js');
 
-// متغير لحفظ آيدي روم الاقتراحات في الذاكرة
+// متغير لحفظ آيدي روم الاقتراحات بالذاكرة
 let suggestionsChannelId = null;
 
 module.exports = function(client, PREFIX = '!') {
 
-  // =================================================================
-  // 🟢 [بداية قسم 1: نظام الاقتراحات التلقائي]
-  // =================================================================
   client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
-    // أ) أمر تحديد روم الاقتراحات (!اقتراحات)
+    // =================================================================
+    // 🟢 [بداية أمر: الاقتراحات (!اقتراحات)]
+    // =================================================================
     if (message.content.startsWith(PREFIX)) {
       const args = message.content.slice(PREFIX.length).trim().split(/ +/);
       const command = args.shift().toLowerCase();
@@ -36,7 +35,6 @@ module.exports = function(client, PREFIX = '!') {
       }
     }
 
-    // ب) تحويل الرسائل في روم الاقتراحات إلى إيمبد مع أزرار تصويت
     if (suggestionsChannelId && message.channel.id === suggestionsChannelId) {
       await message.delete().catch(() => {});
 
@@ -55,9 +53,146 @@ module.exports = function(client, PREFIX = '!') {
 
       await message.channel.send({ embeds: [suggestionEmbed], components: [row] });
     }
+    // =================================================================
+    // 🔴 [نهاية أمر: الاقتراحات (!اقتراحات)]
+    // =================================================================
+
+
+    // التحقق من وجود بادئة الأوامر العامة
+    if (!message.content.startsWith(PREFIX)) return;
+    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: الحظر وفك الحظر (!ban / !unban)]
+    // =================================================================
+    if (command === 'ban') {
+      if (!message.member.permissions.has(PermissionFlagsBits.BanMembers)) 
+        return message.reply('❌ ليس لديك صلاحية حظر الأعضاء.');
+      const target = message.mentions.members.first();
+      const reason = args.slice(1).join(' ') || 'بدون سبب';
+      if (!target) return message.reply('⚠️ يرجى تحديد العضو: `!ban @user reason`');
+      if (!target.bannable) return message.reply('❌ لا يمكنني حظر هذا العضو.');
+
+      await target.ban({ reason });
+      message.channel.send(`✅ تم حظر **${target.user.tag}** | السبب: ${reason}`);
+    }
+
+    if (command === 'unban') {
+      if (!message.member.permissions.has(PermissionFlagsBits.BanMembers)) return;
+      const userId = args[0];
+      if (!userId) return message.reply('⚠️ ضع آيدي الحساب: `!unban ID`');
+      try {
+        await message.guild.members.unban(userId);
+        message.channel.send(`✅ تم فك الحظر عن الحساب: **${userId}**`);
+      } catch {
+        message.reply('❌ لم يتم العثور على حظر بهذا الآيدي.');
+      }
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: الحظر وفك الحظر (!ban / !unban)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: التايم أوت وفكه (!time / !untime)]
+    // =================================================================
+    if (command === 'time' || command === 'timeout') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers)) return;
+      const target = message.mentions.members.first();
+      const minutes = parseInt(args[0]);
+      if (!target || isNaN(minutes)) return message.reply('⚠️ الاستخدام الصحيح: `!time 10 @user` أو `!time @user 10`');
+      await target.timeout(minutes * 60 * 1000);
+      message.channel.send(`⏰ تم إعطاء تايم أوت لـ **${target.user.tag}** لمدة ${minutes} دقيقة.`);
+    }
+
+    if (command === 'untime') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers)) return;
+      const target = message.mentions.members.first();
+      if (!target) return message.reply('⚠️ يرجى تحديد العضو.');
+      await target.timeout(null);
+      message.channel.send(`✅ تم إزالة التايم أوت عن **${target.user.tag}**`);
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: التايم أوت وفكه (!time / !untime)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: قفل وفتح الروم (!lock / !unlock)]
+    // =================================================================
+    if (command === 'lock') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return;
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
+      message.channel.send('🔒 تم إغلاق الروم بنجاح.');
+    }
+
+    if (command === 'unlock') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return;
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: true });
+      message.channel.send('🔓 تم فتح الروم بنجاح.');
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: قفل وفتح الروم (!lock / !unlock)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: إخفاء وإظهار الروم (!hide / !show)]
+    // =================================================================
+    if (command === 'hide') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return;
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { ViewChannel: false });
+      message.channel.send('🙈 تم إخفاء الروم عن الجميع.');
+    }
+
+    if (command === 'show') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return;
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { ViewChannel: true });
+      message.channel.send('👁️ تم إظهار الروم للجميع.');
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: إخفاء وإظهار الروم (!hide / !show)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: مسح الرسائل (!مسح / !clear)]
+    // =================================================================
+    if (command === 'مسح' || command === 'clear') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) return;
+      const amount = parseInt(args[0]);
+      if (isNaN(amount) || amount < 1 || amount > 100) return message.reply('⚠️ اختر عدداً من 1 إلى 100.');
+      await message.channel.bulkDelete(amount, true);
+      const msg = await message.channel.send(`🧹 تم مسح **${amount}** رسالة بنجاح.`);
+      setTimeout(() => msg.delete().catch(() => {}), 3000);
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: مسح الرسائل (!مسح / !clear)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: تغيير اسم الروم (!rename)]
+    // =================================================================
+    if (command === 'rename') {
+      if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return;
+      const newName = args.join('-');
+      if (!newName) return message.reply('⚠️ اكتب الاسم الجديد للروم.');
+      await message.channel.setName(newName);
+      message.channel.send(`🏷️ تم تغيير اسم الروم إلى: **${newName}**`);
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: تغيير اسم الروم (!rename)]
+    // =================================================================
+
   });
 
-  // تفاعل أزرار التصويت على الاقتراحات
+
+  // =================================================================
+  // 🟢 [بداية تفاعلات أزرار الاقتراحات]
+  // =================================================================
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (interaction.customId !== 'suggest_yes' && interaction.customId !== 'suggest_no') return;
@@ -81,15 +216,13 @@ module.exports = function(client, PREFIX = '!') {
     await interaction.update({ components: [newRow] });
   });
   // =================================================================
-  // 🔴 [نهاية قسم 1: نظام الاقتراحات التلقائي]
+  // 🔴 [نهاية تفاعلات أزرار الاقتراحات]
   // =================================================================
 
 
   // =================================================================
-  // 🟢 [بداية قسم 2: أمر المساعدة $help والقائمة المنسدلة]
+  // 🟢 [بداية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
-  
-  // دالة تُعيد معلومات تفصيلية عن كل أمر
   function getCommandDetails(cmdKey) {
     const details = {
       'cmd_help': {
@@ -113,7 +246,7 @@ module.exports = function(client, PREFIX = '!') {
       'cmd_timeout': {
         title: '⏰ أمر التايم أوت (!time / !untime)',
         description: 'كتم العضو مؤقتاً بالدقائق عن الكتابة والصوت أو إزالة التايم أوت عنه.',
-        usage: '`!time @user [المدّة بالدقائق]`\n`!untime @user`',
+        usage: '`!time 10 @user`\n`!untime @user`',
         permissions: 'إدارة الأعضاء (Moderate Members)'
       },
       'cmd_lock': {
@@ -145,12 +278,11 @@ module.exports = function(client, PREFIX = '!') {
     return details[cmdKey] || null;
   }
 
-  // الاستماع لأمر $help
   client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
     if (message.content === '$help' || message.content === '!help') {
-      const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:3000'; // رابط لوحة التحكم
+      const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
       const helpEmbed = new EmbedBuilder()
         .setTitle('📚 قائمة الأوامر ولوحة التحكم')
@@ -180,7 +312,6 @@ module.exports = function(client, PREFIX = '!') {
     }
   });
 
-  // التفاعل مع اختيار القائمة المنسدلة في $help
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isStringSelectMenu() || interaction.customId !== 'help_select_command') return;
 
@@ -204,10 +335,9 @@ module.exports = function(client, PREFIX = '!') {
 
     return interaction.reply({ embeds: [detailEmbed], ephemeral: true });
   });
-
   // =================================================================
-  // 🔴 [نهاية قسم 2: أمر المساعدة $help والقائمة المنسدلة]
+  // 🔴 [نهاية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
 
-  console.log('⚡ تم تحميل ملف system.js بنجاح وتفعيل القوائم والأوامر الجديدة!');
+  console.log('⚡ تم تحميل جميع الأوامر ونظام system.js بنجاح!');
 };
