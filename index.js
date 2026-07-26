@@ -1140,9 +1140,7 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   const dashboardUrl = process.env.RENDER_EXTERNAL_URL || 'https://your-app.onrender.com';
 
-  if (message.content.startsWith(`${ADMIN_PREFIX}help`) || message.content.startsWith(`${PREFIX}help`)) {
-    return message.channel.send({ embeds: [createHelpEmbed(dashboardUrl)] });
-  }
+
 
   if (message.content.startsWith(ADMIN_PREFIX)) {
     const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
