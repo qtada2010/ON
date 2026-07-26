@@ -1543,5 +1543,12 @@ client.on('interactionCreate', async (interaction) => {
     sendLogError('خطأ غير متوقع:', err);
   }
 });
+// 🔗 استدعاء ملف أوامر النظام والإدارة الجديد (system.js)
+require('./system.js')(client, '!');
 
+// 🌐 تشغيل خادم لوحة التحكم Express
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
 client.login(process.env.DISCORD_TOKEN);
