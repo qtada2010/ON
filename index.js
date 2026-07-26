@@ -1010,6 +1010,11 @@ client.on('messageCreate', async (message) => {
   const perms = permRes.rows[0] || {};
   const currentPrefix = perms.prefix || '!';
 
+  const cmdClearName = perms.cmd_clear || 'مسح';
+  const cmdLockName = perms.cmd_lock || 'قفل';
+  const cmdUnlockName = perms.cmd_unlock || 'فتح';
+  const cmdSuggestName = perms.cmd_suggest || 'اقتراحات';
+
   // 1. نظام الاقتراحات التلقائي
   const settingsRes = await pool.query('SELECT suggest_channel_id FROM settings WHERE key = $1', ['main_settings']);
   const suggestChannelId = settingsRes.rows[0] ? settingsRes.rows[0].suggest_channel_id : null;
@@ -1039,10 +1044,41 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // 2. أوامر الإدارة ($)
+  // 2. أوامر الإدارة ($) + أمر المساعدة ($help)
   if (message.content.startsWith(ADMIN_PREFIX)) {
     const args = message.content.slice(ADMIN_PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
+
+    // 📜 أمر المساعدة الشامل ($help)
+    if (command === 'help') {
+      const helpEmbed = new EmbedBuilder()
+        .setTitle('📚 قائمة الأوامر والمساعدة الشاملة')
+        .setDescription(`البريفكس الحالي للأوامر العامة هو: \`${currentPrefix}\`\nالبريفكس للأوامر الإدارية الخاصة هو: \`${ADMIN_PREFIX}\``)
+        .addFields(
+          { 
+            name: '🛠️ الأوامر العامة الإدارية:', 
+            value: `• \`${currentPrefix}${cmdClearName} <العدد>\` : مسح الرسائل (بحد أقصى 500 رسالة).\n• \`${currentPrefix}${cmdLockName}\` : قفل الكتابة بالقناة عن الجميع.\n• \`${currentPrefix}${cmdUnlockName}\` : إعادة فتح الكتابة بالقناة.\n• \`${currentPrefix}${cmdSuggestName} <#الروم>\` : تحديد القناة للاقتراحات التلقائية.` 
+          },
+          { 
+            name: '⚡ أوامر الأدوات ($):', 
+            value: `• \`${ADMIN_PREFIX}tax <المبلغ>\` : حساب ضريبة برو بوت والصافي.\n• \`${ADMIN_PREFIX}come <منشن/ID>\` : استدعاء عضو ورسالة بالخاص.\n• \`${ADMIN_PREFIX}say <النص>\` : إرسال رسالة باسم البوت.` 
+          },
+          { 
+            name: '🎫 أوامر داخل التذاكر:', 
+            value: `• \`${currentPrefix}close\` : إغلاق التذكرة الحالية.` 
+          },
+          { 
+            name: '🌐 التحكم عبر لوحة الموقع:', 
+            value: `يمكنك تعديل الاختصارات والبادئة (${currentPrefix}) وصلاحيات كل أمر بسهولة عبر الدخول للوحة التحكم من قسم **الصلاحيات والبريفكس**.` 
+          }
+        )
+        .setColor(0x0284c7)
+        .setThumbnail(message.guild.iconURL({ dynamic: true }))
+        .setFooter({ text: `طُلبت بواسطة: ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
+        .setTimestamp();
+
+      return message.channel.send({ embeds: [helpEmbed] });
+    }
 
     if (command === 'tax') {
       const allowed = await hasCustomPermission(message.member, perms.tax_role_id, PermissionFlagsBits.Administrator);
@@ -1104,13 +1140,8 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(currentPrefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  const cmdClearName = (perms.cmd_clear || 'مسح').toLowerCase();
-  const cmdLockName = (perms.cmd_lock || 'قفل').toLowerCase();
-  const cmdUnlockName = (perms.cmd_unlock || 'فتح').toLowerCase();
-  const cmdSuggestName = (perms.cmd_suggest || 'اقتراحات').toLowerCase();
-
   // أمر ضبط روم الاقتراحات
-  if (command === cmdSuggestName) {
+  if (command === cmdSuggestName.toLowerCase()) {
     const allowed = await hasCustomPermission(message.member, perms.suggest_role_id, PermissionFlagsBits.ManageChannels);
     if (!allowed) return message.reply('❌ لا تمتلك صلاحية ضبط روم الاقتراحات!');
 
@@ -1126,7 +1157,7 @@ client.on('messageCreate', async (message) => {
   }
 
   // أمر مسح الرسائل (بحد أقصى 500)
-  if (command === cmdClearName) {
+  if (command === cmdClearName.toLowerCase()) {
     const allowed = await hasCustomPermission(message.member, perms.clear_role_id, PermissionFlagsBits.ManageMessages);
     if (!allowed) return message.reply('❌ لا تمتلك صلاحية استخدام أمر المسح!');
 
@@ -1158,7 +1189,7 @@ client.on('messageCreate', async (message) => {
   }
 
   // أمر قفل الروم
-  if (command === cmdLockName) {
+  if (command === cmdLockName.toLowerCase()) {
     const allowed = await hasCustomPermission(message.member, perms.lock_role_id, PermissionFlagsBits.ManageChannels);
     if (!allowed) return message.reply('❌ لا تمتلك صلاحية قفل القناة!');
 
@@ -1173,7 +1204,7 @@ client.on('messageCreate', async (message) => {
   }
 
   // أمر فتح الروم
-  if (command === cmdUnlockName) {
+  if (command === cmdUnlockName.toLowerCase()) {
     const allowed = await hasCustomPermission(message.member, perms.unlock_role_id, PermissionFlagsBits.ManageChannels);
     if (!allowed) return message.reply('❌ لا تمتلك صلاحية فتح القناة!');
 
