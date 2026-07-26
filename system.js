@@ -8,8 +8,26 @@ const {
   StringSelectMenuOptionBuilder 
 } = require('discord.js');
 
-// متغير لحفظ آيدي روم الاقتراحات بالذاكرة
-let suggestionsChannelId = null;
+// مصفوفات لحفظ أرقام/آيديهات القنوات في الذاكرة
+let suggestionsChannelIds = new Set(); // دعم أكثر من روم للاقتراحات
+let taxChannelIds = new Set();        // دعم رومات حاسبة الضريبة
+
+// دالة تحويل الاختصارات مثل (1m, 1k, 1b) إلى أرقام
+function parseAmount(input) {
+  if (!input) return null;
+  const str = input.toLowerCase().trim();
+  const match = str.match(/^(\d+(?:\.\d+)?)\s*([kmb])?$/);
+  if (!match) return null;
+
+  let num = parseFloat(match[1]);
+  const unit = match[2];
+
+  if (unit === 'k') num *= 1_000;
+  if (unit === 'm') num *= 1_000_000;
+  if (unit === 'b') num *= 1_000_000_000;
+
+  return Math.floor(num);
+}
 
 module.exports = function(client, PREFIX = '!') {
 
@@ -17,7 +35,59 @@ module.exports = function(client, PREFIX = '!') {
     if (message.author.bot || !message.guild) return;
 
     // =================================================================
-    // 🟢 [بداية أمر: الاقتراحات (!اقتراحات)]
+    // 🟢 [بداية أمر: حاسبة ضريبة بروبوت التلقائية (!ضريبة / !tax)]
+    // =================================================================
+    if (message.content.startsWith(PREFIX)) {
+      const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+      const command = args.shift().toLowerCase();
+
+      if (command === 'ضريبة' || command === 'tax-channel') {
+        if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels) && !message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return message.reply('❌ ليس لديك صلاحية لتحديد رومات الضريبة.');
+        }
+
+        const targetChannel = message.mentions.channels.first() || message.guild.channels.cache.get(args[0]) || message.channel;
+
+        if (taxChannelIds.has(targetChannel.id)) {
+          taxChannelIds.delete(targetChannel.id);
+          return message.reply(`🗑️ تم إزالة ${targetChannel} من قائمة رومات حاسبة الضريبة.`);
+        } else {
+          taxChannelIds.add(targetChannel.id);
+          return message.reply(`✅ تم إضافة ${targetChannel} كروم رسمي لحاسبة ضريبة بروبوت!`);
+        }
+      }
+    }
+
+    // حساب الضريبة تلقائياً عند كتابة أي مبلغ في رومات الضريبة المحددة
+    if (taxChannelIds.has(message.channel.id)) {
+      const amount = parseAmount(message.content);
+
+      if (amount && amount > 0) {
+        // معادلة ضريبة بروبوت 5%
+        const tax = Math.floor(amount * (20 / 19) + 1);
+        const taxOnly = tax - amount;
+
+        const taxEmbed = new EmbedBuilder()
+          .setTitle('💰 حاسبة ضريبة ProBot')
+          .setColor('#22c55e')
+          .addFields(
+            { name: '💵 المبلغ المطلوب:', value: `\`${amount.toLocaleString()}\``, inline: true },
+            { name: '💳 المبلغ مع الضريبة (الكامل):', value: `\`${tax.toLocaleString()}\``, inline: true },
+            { name: '📊 مقدار الضريبة (5%):', value: `\`${taxOnly.toLocaleString()}\``, inline: false }
+          )
+          .setFooter({ text: '💡 يمكنك كتابة اختصارات مثل: 1k, 5m, 1b' })
+          .setTimestamp();
+
+        await message.reply({ embeds: [taxEmbed] });
+      }
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: حاسبة ضريبة بروبوت التلقائية (!ضريبة / !tax)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: الاقتراحات المطور - متعدد الرومات (!اقتراحات)]
     // =================================================================
     if (message.content.startsWith(PREFIX)) {
       const args = message.content.slice(PREFIX.length).trim().split(/ +/);
@@ -25,17 +95,23 @@ module.exports = function(client, PREFIX = '!') {
 
       if (command === 'اقتراحات' || command === 'set-suggestions') {
         if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels) && !message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-          return message.reply('❌ ليس لديك صلاحية لتحديد روم الاقتراحات.');
+          return message.reply('❌ ليس لديك صلاحية لتحديد رومات الاقتراحات.');
         }
 
         const targetChannel = message.mentions.channels.first() || message.guild.channels.cache.get(args[0]) || message.channel;
-        suggestionsChannelId = targetChannel.id;
 
-        return message.reply(`✅ تم تحديد ${targetChannel} كروم رسمي للاقتراحات بنجاح!`);
+        if (suggestionsChannelIds.has(targetChannel.id)) {
+          suggestionsChannelIds.delete(targetChannel.id);
+          return message.reply(`🗑️ تم إزالة ${targetChannel} من قائمة رومات الاقتراحات.`);
+        } else {
+          suggestionsChannelIds.add(targetChannel.id);
+          return message.reply(`✅ تم إضافة ${targetChannel} كروم رسمي للاقتراحات بنجاح!`);
+        }
       }
     }
 
-    if (suggestionsChannelId && message.channel.id === suggestionsChannelId) {
+    // تحويل الرسائل في أي روم من رومات الاقتراحات المحددة إلى إيمبد
+    if (suggestionsChannelIds.has(message.channel.id)) {
       await message.delete().catch(() => {});
 
       const suggestionEmbed = new EmbedBuilder()
@@ -54,7 +130,7 @@ module.exports = function(client, PREFIX = '!') {
       await message.channel.send({ embeds: [suggestionEmbed], components: [row] });
     }
     // =================================================================
-    // 🔴 [نهاية أمر: الاقتراحات (!اقتراحات)]
+    // 🔴 [نهاية أمر: الاقتراحات المطور - متعدد الرومات (!اقتراحات)]
     // =================================================================
 
 
@@ -231,9 +307,15 @@ module.exports = function(client, PREFIX = '!') {
         usage: '`$help`',
         permissions: 'متاح للجميع'
       },
+      'cmd_tax': {
+        title: '💰 أمر حاسبة الضريبة (!ضريبة)',
+        description: 'تحديد/إلغاء روم لحاسبة ضريبة بروبوت. عند كتابة أي مبلغ مثل 1m أو 500k يقوم البوت بحساب المبلغ مع الضريبة تلقائياً.',
+        usage: '`!ضريبة` أو `!ضريبة #الروم`',
+        permissions: 'إدارة القنوات (Manage Channels)'
+      },
       'cmd_suggestions': {
         title: '💡 أمر تحديد الاقتراحات (!اقتراحات)',
-        description: 'تحديد روم رسمي للاقتراحات. يتم تحويل أي رسالة بداخل الروم تلقائياً إلى إيمبد مع أزرار تصويت (👍 / 👎).',
+        description: 'تحديد/إلغاء رومات رسمية للاقتراحات (يدعم أكثر من روم). يتم تحويل أي رسالة بداخلها إلى إيمبد مع أزرار تصويت.',
         usage: '`!اقتراحات` أو `!اقتراحات #الروم`',
         permissions: 'إدارة القنوات (Manage Channels)'
       },
@@ -297,7 +379,8 @@ module.exports = function(client, PREFIX = '!') {
         .setPlaceholder('🔍 اختر الأمر لعرض شرحه التفصيلي...')
         .addOptions(
           new StringSelectMenuOptionBuilder().setLabel('أمر المساعدة ($help)').setValue('cmd_help').setDescription('شرح أمر المساعدة والرابط').setEmoji('❓'),
-          new StringSelectMenuOptionBuilder().setLabel('أمر الاقتراحات (!اقتراحات)').setValue('cmd_suggestions').setDescription('شرح ضبط روم الاقتراحات التلقائي').setEmoji('💡'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر الضريبة التلقائي (!ضريبة)').setValue('cmd_tax').setDescription('حاسبة ضريبة بروبوت تلقائياً').setEmoji('💰'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر الاقتراحات (!اقتراحات)').setValue('cmd_suggestions').setDescription('ضبط رومات الاقتراحات التلقائية').setEmoji('💡'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الباند والفك (!ban / !unban)').setValue('cmd_ban').setDescription('شرح حظر وفك حظر الأعضاء').setEmoji('🔨'),
           new StringSelectMenuOptionBuilder().setLabel('أمر التايم أوت (!time / !untime)').setValue('cmd_timeout').setDescription('شرح الكتم المؤقت وفكه').setEmoji('⏰'),
           new StringSelectMenuOptionBuilder().setLabel('أمر قفل وفتح الروم (!lock / !unlock)').setValue('cmd_lock').setDescription('شرح التحكم في قفل القنوات').setEmoji('🔒'),
@@ -339,5 +422,5 @@ module.exports = function(client, PREFIX = '!') {
   // 🔴 [نهاية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
 
-  console.log('⚡ تم تحميل جميع الأوامر ونظام system.js بنجاح!');
+  console.log('⚡ تم تحميل جميع الأوامر المحدثة ونظام system.js بنجاح!');
 };
