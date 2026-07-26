@@ -103,7 +103,7 @@ async function initDatabase() {
       );
     `);
 
-    // 5. جدول نظام تقديم الإدارة (جديد)
+    // 5. جدول نظام تقديم الإدارة (تحديث إضافة رتبة القبول)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS apply_setup (
         id VARCHAR(50) PRIMARY KEY,
@@ -114,6 +114,7 @@ async function initDatabase() {
         review_channel_id VARCHAR(100),
         results_channel_id VARCHAR(100),
         high_admin_role_id VARCHAR(100),
+        accepted_role_id VARCHAR(100),
         q1 TEXT,
         q2 TEXT,
         q3 TEXT,
@@ -123,7 +124,11 @@ async function initDatabase() {
       );
     `);
 
-    console.log('🐘 تم تحديث وتجهيز جميع الجداول بنجاح للتحديث الشامل!');
+    await pool.query(`
+      ALTER TABLE apply_setup ADD COLUMN IF NOT EXISTS accepted_role_id VARCHAR(100);
+    `);
+
+    console.log('🐘 تم تحديث الجداول وإضافة خيار رتبة القبول بنجاح!');
   } catch (err) {
     console.error('❌ خطأ أثناء إعداد قاعدة البيانات:', err);
   }
@@ -237,7 +242,7 @@ app.get('/', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>🎮 لوحة التحكم الإدارية المطلقة (السيرفرات الضخمة)</h1>
-        <p style="text-align:center; color:#94a3b8;">تحكم شامل بكافة خيارات التذاكر، إعداد التقديمات للإدارة، الألوان، الصلاحيات.</p>
+        <p style="text-align:center; color:#94a3b8;">تحكم شامل بكافة خيارات التذاكر، إعداد التقديمات للإدارة وإعطاء الرتب تلقائياً.</p>
         <div style="text-align:center; margin-top: 30px;">
           <a href="/panel" class="btn">🛠️ إدارة لوحات التذاكر</a>
           <a href="/apply-setup" class="btn" style="background:#eab308; color:#000;">📝 إعداد نظام تقديم الإدارة</a>
@@ -251,7 +256,7 @@ app.get('/', requireAuth, (req, res) => {
 });
 
 // ==========================================
-// إدارة لوحات التذاكر (بدون تغيير)
+// إدارة لوحات التذاكر
 // ==========================================
 app.get('/panel', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM panels');
@@ -654,7 +659,7 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. نظام تقديم الإدارة الشامل (جديد)
+// 4. نظام تقديم الإدارة (إعداد الرتب التلقائية)
 // ==========================================
 app.get('/apply-setup', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
@@ -674,8 +679,7 @@ app.get('/apply-setup', requireAuth, async (req, res) => {
         h1, h2 { color: #eab308; }
         label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; }
         input, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        button { margin-top: 20px; padding: 12px; background: #eab308; color: #000; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; font-size: 15px; }
-        .btn-update { background: #f59e0b; color: white; }
+        button { margin-top: 20px; padding: 12px; background: #eab308; color: #000; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 15px; }
       </style>
     </head>
     <body>
@@ -693,7 +697,7 @@ app.get('/apply-setup', requireAuth, async (req, res) => {
         <h1>📝 التحكم بصفحة ولوحة تقديم الإدارة</h1>
         <form action="/save-apply-setup" method="POST">
 
-          <h2>⚙️ إعدادات الرومات والصلاحيات:</h2>
+          <h2>⚙️ إعدادات الرومات والصلاحيات والرتب:</h2>
           <div style="display:flex; gap:15px;">
             <div style="flex:1;">
               <label>روم إرسال بنر التقديم (للأعضاء):</label>
@@ -716,6 +720,9 @@ app.get('/apply-setup', requireAuth, async (req, res) => {
             </div>
           </div>
 
+          <label style="color:#10b981;">🎖️ آيدي الرتبة التي يحصل عليها المتقدم تلقائياً عند القبول (اختياري):</label>
+          <input type="text" name="acceptedRoleId" value="${appData.accepted_role_id || ''}" placeholder="آيدي رتبة الإدارة الجدد">
+
           <hr style="margin: 25px 0; border-color: #334155;">
           <h2>🖼️ رسالة التقديم (التي تظهر بفروم التقديم):</h2>
           <label>عنوان رسالة التقديم:</label>
@@ -724,7 +731,7 @@ app.get('/apply-setup', requireAuth, async (req, res) => {
           <label>الوصف:</label>
           <textarea name="description" rows="2" required>${appData.description || 'اضغط على الزر بأسفل الرسالة للبدء بتعبئة نموذج التقديم للإدارة.'}</textarea>
 
-          <label>رابط الصورة המرفقة (URL):</label>
+          <label>رابط الصورة المرفقة (URL):</label>
           <input type="url" name="imageUrl" value="${appData.image_url || ''}">
 
           <hr style="margin: 25px 0; border-color: #334155;">
@@ -744,9 +751,7 @@ app.get('/apply-setup', requireAuth, async (req, res) => {
           <label>السؤال الخامس (اختياري):</label>
           <input type="text" name="q5" value="${appData.q5 || ''}">
 
-          <div style="display:flex; justify-content:space-between; margin-top:25px;">
-            <button type="submit" name="action" value="save" style="width:100%; background:#10b981; color:#fff;">💾 حفظ الإعدادات ونشر بنر التقديم بالديسكورد</button>
-          </div>
+          <button type="submit" style="background:#10b981; color:#fff;">💾 حفظ الإعدادات ونشر بنر التقديم بالديسكورد</button>
         </form>
       </div>
     </body>
@@ -758,8 +763,8 @@ app.post('/save-apply-setup', requireAuth, async (req, res) => {
   const d = req.body;
 
   await pool.query(`
-    INSERT INTO apply_setup (id, title, description, image_url, submit_channel_id, review_channel_id, results_channel_id, high_admin_role_id, q1, q2, q3, q4, q5)
-    VALUES ('main_apply', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    INSERT INTO apply_setup (id, title, description, image_url, submit_channel_id, review_channel_id, results_channel_id, high_admin_role_id, accepted_role_id, q1, q2, q3, q4, q5)
+    VALUES ('main_apply', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     ON CONFLICT (id) DO UPDATE SET
       title = EXCLUDED.title,
       description = EXCLUDED.description,
@@ -768,12 +773,13 @@ app.post('/save-apply-setup', requireAuth, async (req, res) => {
       review_channel_id = EXCLUDED.review_channel_id,
       results_channel_id = EXCLUDED.results_channel_id,
       high_admin_role_id = EXCLUDED.high_admin_role_id,
+      accepted_role_id = EXCLUDED.accepted_role_id,
       q1 = EXCLUDED.q1,
       q2 = EXCLUDED.q2,
       q3 = EXCLUDED.q3,
       q4 = EXCLUDED.q4,
       q5 = EXCLUDED.q5;
-  `, [d.title, d.description, d.imageUrl ? d.imageUrl.trim() : '', d.submitChannelId.trim(), d.reviewChannelId.trim(), d.resultsChannelId.trim(), d.highAdminRoleId.trim(), d.q1, d.q2, d.q3, d.q4, d.q5]);
+  `, [d.title, d.description, d.imageUrl ? d.imageUrl.trim() : '', d.submitChannelId.trim(), d.reviewChannelId.trim(), d.resultsChannelId.trim(), d.highAdminRoleId.trim(), d.acceptedRoleId ? d.acceptedRoleId.trim() : '', d.q1, d.q2, d.q3, d.q4, d.q5]);
 
   try {
     const submitChannel = await client.channels.fetch(d.submitChannelId.trim());
@@ -1349,7 +1355,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply({ content: '✅ تم إرسال تقديمك بنجاح! سيتم مراجعته من قبل الإدارة العليا.' });
     }
 
-    // 3. أزرار القبول والرفض للتقديم (الإدارة العليا)
+    // 3. أزرار القبول والرفض للتقديم (مع إعطاء الرتبة التلقائية)
     if (interaction.isButton() && (interaction.customId.startsWith('apply_accept_') || interaction.customId.startsWith('apply_reject_'))) {
       const result = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
       const appData = result.rows[0];
@@ -1383,6 +1389,11 @@ client.on('interactionCreate', async (interaction) => {
       const resultsChannel = await interaction.guild.channels.fetch(appData.results_channel_id).catch(() => null);
       const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
 
+      // إعطاء الرتبة تلقائياً في حال القبول
+      if (isAccept && targetMember && appData.accepted_role_id) {
+        await targetMember.roles.add(appData.accepted_role_id).catch(err => console.error('تعذر إعطاء الرتبة للمقبول:', err));
+      }
+
       const resultEmbed = new EmbedBuilder()
         .setThumbnail(targetMember ? targetMember.user.displayAvatarURL() : interaction.guild.iconURL())
         .setColor(isAccept ? 0x10b981 : 0xef4444)
@@ -1406,7 +1417,7 @@ client.on('interactionCreate', async (interaction) => {
         await resultsChannel.send({ embeds: [resultEmbed] });
       }
 
-      // تعديل رسالة المراجعة لإغلاق الأزرار
+      // تعطيل الأزرار بعد اتخاذ القرار
       const disabledRow = ActionRowBuilder.from(interaction.message.components[0]);
       disabledRow.components.forEach(c => c.setDisabled(true));
       await interaction.message.edit({ components: [disabledRow] });
