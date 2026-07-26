@@ -31,6 +31,103 @@ function parseAmount(input) {
 
 module.exports = function(client, PREFIX = '!') {
 
+  // =================================================================
+  // 🟢 [بداية أمر: أزرار استلام وإلغاء استلام التذكرة (!claim-panel)]
+  // =================================================================
+  client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.guild) return;
+
+    if (message.content.startsWith(PREFIX)) {
+      const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+      const command = args.shift().toLowerCase();
+
+      // أمر لإرسال أزرار الاستلام داخل التكت عند الحاجة
+      if (command === 'claim-panel' || command === 'استلام') {
+        if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          return message.reply('❌ ليس لديك صلاحية لاستخدام هذا الأمر.');
+        }
+
+        const claimEmbed = new EmbedBuilder()
+          .setTitle('📌 التحكم في استلام التذكرة')
+          .setDescription('يمكن للإدارة استخدام الأزرار أدناه لاستلام التذكرة أو إلغاء استلامها:')
+          .setColor('#3b82f6')
+          .setFooter({ text: 'نظام الاستلام والتذكرة' });
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('ticket_claim_btn')
+            .setLabel('استلام التذكرة')
+            .setEmoji('📌')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('ticket_unclaim_btn')
+            .setLabel('إلغاء الاستلام')
+            .setEmoji('🔄')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        return message.channel.send({ embeds: [claimEmbed], components: [row] });
+      }
+    }
+  });
+
+  // معالجة الضغط على أزرار الاستلام وإلغاء الاستلام
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'ticket_claim_btn') {
+      // التحقق من الصلاحيات الإدارية
+      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.reply({ content: '❌ لا تمتلك صلاحية لاستلام التذكرة!', ephemeral: true });
+      }
+
+      // القناة الحالية
+      const channel = interaction.channel;
+
+      // تعديل الصلاحيات: تعطيل الكتابة لجميع الأدوار العادية، وتفعيلها للمستلم فقط والأدمن
+      // ملاحظة: لا نعدل ViewChannel مطلقاً كي لا يتغير إخفاء/إظهار الروم
+      await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: false
+      });
+
+      await channel.permissionOverwrites.edit(interaction.user.id, {
+        SendMessages: true
+      });
+
+      const claimedEmbed = new EmbedBuilder()
+        .setDescription(`📌 **تم استلام التذكرة بواسطة:** ${interaction.user}\nلا يمكن لأحد الكتابة في هذه التذكرة الآن سوى الإداري المستلم والعلياء.`)
+        .setColor('#22c55e');
+
+      return interaction.reply({ embeds: [claimedEmbed] });
+    }
+
+    if (interaction.customId === 'ticket_unclaim_btn') {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.reply({ content: '❌ لا تمتلك صلاحية لإلغاء استلام التذكرة!', ephemeral: true });
+      }
+
+      const channel = interaction.channel;
+
+      // إعادة إمكانية الكتابة للجميع بدون المساس برؤية الروم
+      await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: true
+      });
+
+      // إزالة التخصيص الفردي للمستلم
+      await channel.permissionOverwrites.delete(interaction.user.id).catch(() => {});
+
+      const unclaimedEmbed = new EmbedBuilder()
+        .setDescription(`🔄 **تم إلغاء استلام التذكرة بواسطة:** ${interaction.user}\nيمكن لجميع أفراد الإدارة الكتابة بداخلها الآن.`)
+        .setColor('#eab308');
+
+      return interaction.reply({ embeds: [unclaimedEmbed] });
+    }
+  });
+  // =================================================================
+  // 🔴 [نهاية أمر: أزرار استلام وإلغاء استلام التذكرة (!claim-panel)]
+  // =================================================================
+
+
   client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
@@ -58,12 +155,10 @@ module.exports = function(client, PREFIX = '!') {
       }
     }
 
-    // حساب الضريبة تلقائياً عند كتابة أي مبلغ في رومات الضريبة المحددة
     if (taxChannelIds.has(message.channel.id)) {
       const amount = parseAmount(message.content);
 
       if (amount && amount > 0) {
-        // معادلة ضريبة بروبوت 5%
         const tax = Math.floor(amount * (20 / 19) + 1);
         const taxOnly = tax - amount;
 
@@ -110,7 +205,6 @@ module.exports = function(client, PREFIX = '!') {
       }
     }
 
-    // تحويل الرسائل في أي روم من رومات الاقتراحات المحددة إلى إيمبد
     if (suggestionsChannelIds.has(message.channel.id)) {
       await message.delete().catch(() => {});
 
@@ -134,7 +228,6 @@ module.exports = function(client, PREFIX = '!') {
     // =================================================================
 
 
-    // التحقق من وجود بادئة الأوامر العامة
     if (!message.content.startsWith(PREFIX)) return;
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
@@ -307,6 +400,12 @@ module.exports = function(client, PREFIX = '!') {
         usage: '`$help`',
         permissions: 'متاح للجميع'
       },
+      'cmd_claim': {
+        title: '📌 أمر لوحة استلام التذكرة (!استلام)',
+        description: 'إرسال لوحة تحتوي على أزرار الاستلام وإلغاء الاستلام للتذكرة لمنع بقية الإداريين من الكتابة.',
+        usage: '`!استلام` أو `!claim-panel`',
+        permissions: 'إدارة الرسائل (Manage Messages)'
+      },
       'cmd_tax': {
         title: '💰 أمر حاسبة الضريبة (!ضريبة)',
         description: 'تحديد/إلغاء روم لحاسبة ضريبة بروبوت. عند كتابة أي مبلغ مثل 1m أو 500k يقوم البوت بحساب المبلغ مع الضريبة تلقائياً.',
@@ -379,6 +478,7 @@ module.exports = function(client, PREFIX = '!') {
         .setPlaceholder('🔍 اختر الأمر لعرض شرحه التفصيلي...')
         .addOptions(
           new StringSelectMenuOptionBuilder().setLabel('أمر المساعدة ($help)').setValue('cmd_help').setDescription('شرح أمر المساعدة والرابط').setEmoji('❓'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر استلام التكت (!استلام)').setValue('cmd_claim').setDescription('أزرار استلام وإلغاء استلام التكّت').setEmoji('📌'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الضريبة التلقائي (!ضريبة)').setValue('cmd_tax').setDescription('حاسبة ضريبة بروبوت تلقائياً').setEmoji('💰'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الاقتراحات (!اقتراحات)').setValue('cmd_suggestions').setDescription('ضبط رومات الاقتراحات التلقائية').setEmoji('💡'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الباند والفك (!ban / !unban)').setValue('cmd_ban').setDescription('شرح حظر وفك حظر الأعضاء').setEmoji('🔨'),
@@ -422,5 +522,5 @@ module.exports = function(client, PREFIX = '!') {
   // 🔴 [نهاية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
 
-  console.log('⚡ تم تحميل جميع الأوامر المحدثة ونظام system.js بنجاح!');
+  console.log('⚡ تم تحميل جميع الأوامر ونظام التذاكر المحدث بداخل system.js بنجاح!');
 };
