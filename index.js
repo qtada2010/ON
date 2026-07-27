@@ -1543,9 +1543,5 @@ client.on('interactionCreate', async (interaction) => {
 });
 // 🔗 استدعاء ملف أوامر النظام والإدارة الجديد (system.js)
 require('./system.js')(client, '!');
-// 1. استدعاء الملف المضاف وتمرين الـ pool والـ client
-const wepRouter = require('./wep.js')(pool, client);
 
-// 2. تفعيل الموديول في التطبيق
-app.use('/', wepRouter); // إذا كنت تستخدم requireAuth للحماية
 client.login(process.env.DISCORD_TOKEN);
