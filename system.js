@@ -76,16 +76,12 @@ module.exports = function(client, PREFIX = '!') {
     if (!interaction.isButton()) return;
 
     if (interaction.customId === 'ticket_claim_btn') {
-      // التحقق من الصلاحيات الإدارية
       if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
         return interaction.reply({ content: '❌ لا تمتلك صلاحية لاستلام التذكرة!', ephemeral: true });
       }
 
-      // القناة الحالية
       const channel = interaction.channel;
 
-      // تعديل الصلاحيات: تعطيل الكتابة لجميع الأدوار العادية، وتفعيلها للمستلم فقط والأدمن
-      // ملاحظة: لا نعدل ViewChannel مطلقاً كي لا يتغير إخفاء/إظهار الروم
       await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         SendMessages: false
       });
@@ -108,12 +104,10 @@ module.exports = function(client, PREFIX = '!') {
 
       const channel = interaction.channel;
 
-      // إعادة إمكانية الكتابة للجميع بدون المساس برؤية الروم
       await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         SendMessages: true
       });
 
-      // إزالة التخصيص الفردي للمستلم
       await channel.permissionOverwrites.delete(interaction.user.id).catch(() => {});
 
       const unclaimedEmbed = new EmbedBuilder()
@@ -130,6 +124,68 @@ module.exports = function(client, PREFIX = '!') {
 
   client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
+
+    // =================================================================
+    // 🟢 [بداية أمر: إضافة عضو/رول لمشاهدة الروم (!اضافة)]
+    // =================================================================
+    if (message.content.startsWith(PREFIX)) {
+      const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+      const command = args.shift().toLowerCase();
+
+      if (command === 'اضافة' || command === 'add') {
+        if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+          return message.reply('❌ ليس لديك صلاحية إدارة القنوات لاستخدام هذا الأمر.');
+        }
+
+        const targetMember = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
+        const targetRole = message.mentions.roles.first() || message.guild.roles.cache.get(args[0]);
+
+        if (targetMember) {
+          await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true });
+          return message.reply(`👁️ تم منح **${targetMember.user.tag}** صلاحية رؤية الروم بنجاح!`);
+        } else if (targetRole) {
+          await message.channel.permissionOverwrites.edit(targetRole.id, { ViewChannel: true });
+          return message.reply(`👁️ تم منح رول **${targetRole.name}** صلاحية رؤية الروم بنجاح!`);
+        } else {
+          return message.reply('⚠️ يرجى منشن عضو/رول أو كتابة الآيدي الخاص به: `!اضافة @user` أو `!اضافة @role`');
+        }
+      }
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: إضافة عضو/رول لمشاهدة الروم (!اضافة)]
+    // =================================================================
+
+
+    // =================================================================
+    // 🟢 [بداية أمر: إعطاء صلاحية الكتابة لعضو/رول (!كتابة)]
+    // =================================================================
+    if (message.content.startsWith(PREFIX)) {
+      const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+      const command = args.shift().toLowerCase();
+
+      if (command === 'كتابة' || command === 'write') {
+        if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+          return message.reply('❌ ليس لديك صلاحية إدارة القنوات لاستخدام هذا الأمر.');
+        }
+
+        const targetMember = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
+        const targetRole = message.mentions.roles.first() || message.guild.roles.cache.get(args[0]);
+
+        if (targetMember) {
+          await message.channel.permissionOverwrites.edit(targetMember.id, { SendMessages: true });
+          return message.reply(`✍️ تم منح **${targetMember.user.tag}** صلاحية الكتابة بالروم بنجاح!`);
+        } else if (targetRole) {
+          await message.channel.permissionOverwrites.edit(targetRole.id, { SendMessages: true });
+          return message.reply(`✍️ تم منح رول **${targetRole.name}** صلاحية الكتابة بالروم بنجاح!`);
+        } else {
+          return message.reply('⚠️ يرجى منشن عضو/رول أو كتابة الآيدي الخاص به: `!كتابة @user` أو `!كتابة @role`');
+        }
+      }
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: إعطاء صلاحية الكتابة لعضو/رول (!كتابة)]
+    // =================================================================
+
 
     // =================================================================
     // 🟢 [بداية أمر: حاسبة ضريبة بروبوت التلقائية (!ضريبة / !tax)]
@@ -400,6 +456,18 @@ module.exports = function(client, PREFIX = '!') {
         usage: '`$help`',
         permissions: 'متاح للجميع'
       },
+      'cmd_add': {
+        title: '👁️ أمر إعطاء رؤية الروم (!اضافة)',
+        description: 'إعطاء عضو أو رول صلاحية رؤية ومشاهدة القناة الحالية.',
+        usage: '`!اضافة @user` أو `!اضافة @role`',
+        permissions: 'إدارة القنوات (Manage Channels)'
+      },
+      'cmd_write': {
+        title: '✍️ أمر إعطاء صلاحية الكتابة (!كتابة)',
+        description: 'إعطاء عضو أو رول صلاحية الكتابة والدردشة في القناة الحالية.',
+        usage: '`!كتابة @user` أو `!كتابة @role`',
+        permissions: 'إدارة القنوات (Manage Channels)'
+      },
       'cmd_claim': {
         title: '📌 أمر لوحة استلام التذكرة (!استلام)',
         description: 'إرسال لوحة تحتوي على أزرار الاستلام وإلغاء الاستلام للتذكرة لمنع بقية الإداريين من الكتابة.',
@@ -478,6 +546,8 @@ module.exports = function(client, PREFIX = '!') {
         .setPlaceholder('🔍 اختر الأمر لعرض شرحه التفصيلي...')
         .addOptions(
           new StringSelectMenuOptionBuilder().setLabel('أمر المساعدة ($help)').setValue('cmd_help').setDescription('شرح أمر المساعدة والرابط').setEmoji('❓'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر إضافة مشاهدة (!اضافة)').setValue('cmd_add').setDescription('منح رؤية الروم لعضو أو رول').setEmoji('👁️'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر إعطاء الكتابة (!كتابة)').setValue('cmd_write').setDescription('منح الكتابة بالروم لعضو أو رول').setEmoji('✍️'),
           new StringSelectMenuOptionBuilder().setLabel('أمر استلام التكت (!استلام)').setValue('cmd_claim').setDescription('أزرار استلام وإلغاء استلام التكّت').setEmoji('📌'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الضريبة التلقائي (!ضريبة)').setValue('cmd_tax').setDescription('حاسبة ضريبة بروبوت تلقائياً').setEmoji('💰'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الاقتراحات (!اقتراحات)').setValue('cmd_suggestions').setDescription('ضبط رومات الاقتراحات التلقائية').setEmoji('💡'),
@@ -522,5 +592,5 @@ module.exports = function(client, PREFIX = '!') {
   // 🔴 [نهاية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
 
-  console.log('⚡ تم تحميل جميع الأوامر ونظام التذاكر المحدث بداخل system.js بنجاح!');
+  console.log('⚡ تم تحميل جميع الأوامر المحدثة بنجاح!');
 };
