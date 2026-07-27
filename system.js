@@ -275,7 +275,8 @@ module.exports = function(client, PREFIX = '!') {
         new ButtonBuilder().setCustomId('suggest_no').setLabel('0').setEmoji('👎').setStyle(ButtonStyle.Danger)
       );
 
-      await message.channel.send({ embeds: [suggestionEmbed], components: [row] });
+      const sentMsg = await message.channel.send({ embeds: [suggestionEmbed], components: [row] });
+      await client.suggestionVotes.set(sentMsg.id, { yes: new Set(), no: new Set() });
     }
     // =================================================================
     // 🔴 [نهاية أمر: الاقتراحات المطور - متعدد الرومات (!اقتراحات)]
@@ -469,24 +470,46 @@ module.exports = function(client, PREFIX = '!') {
   // =================================================================
   // 🟢 [بداية تفاعلات أزرار الاقتراحات]
   // =================================================================
+  if (!client.suggestionVotes) client.suggestionVotes = new Map();
+
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (interaction.customId !== 'suggest_yes' && interaction.customId !== 'suggest_no') return;
 
     const message = interaction.message;
-    const components = message.components[0].components;
+    const userId = interaction.user.id;
 
+    if (!client.suggestionVotes.has(message.id)) {
+      client.suggestionVotes.set(message.id, { yes: new Set(), no: new Set() });
+    }
+
+    const votes = client.suggestionVotes.get(message.id);
+
+    const hasVotedYes = votes.yes.has(userId);
+    const hasVotedNo = votes.no.has(userId);
+
+    if (interaction.customId === 'suggest_yes') {
+      if (hasVotedYes) {
+        votes.yes.delete(userId);
+      } else {
+        votes.yes.add(userId);
+        votes.no.delete(userId);
+      }
+    } else if (interaction.customId === 'suggest_no') {
+      if (hasVotedNo) {
+        votes.no.delete(userId);
+      } else {
+        votes.no.add(userId);
+        votes.yes.delete(userId);
+      }
+    }
+
+    const components = message.components[0].components;
     let yesBtn = ButtonBuilder.from(components[0]);
     let noBtn = ButtonBuilder.from(components[1]);
 
-    let yesCount = parseInt(yesBtn.data.label) || 0;
-    let noCount = parseInt(noBtn.data.label) || 0;
-
-    if (interaction.customId === 'suggest_yes') yesCount += 1;
-    if (interaction.customId === 'suggest_no') noCount += 1;
-
-    yesBtn.setLabel(`${yesCount}`);
-    noBtn.setLabel(`${noCount}`);
+    yesBtn.setLabel(`${votes.yes.size}`);
+    noBtn.setLabel(`${votes.no.size}`);
 
     const newRow = new ActionRowBuilder().addComponents(yesBtn, noBtn);
     await interaction.update({ components: [newRow] });
@@ -599,7 +622,7 @@ module.exports = function(client, PREFIX = '!') {
           new StringSelectMenuOptionBuilder().setLabel('أمر المساعدة ($help)').setValue('cmd_help').setDescription('شرح أمر المساعدة والرابط').setEmoji('❓'),
           new StringSelectMenuOptionBuilder().setLabel('أمر إضافة مشاهدة (!اضافة)').setValue('cmd_add').setDescription('منح رؤية الروم لعضو أو رول').setEmoji('👁️'),
           new StringSelectMenuOptionBuilder().setLabel('أمر إعطاء الكتابة (!كتابة)').setValue('cmd_write').setDescription('منح الكتابة بالروم لعضو أو رول').setEmoji('✍️'),
-          new StringSelectMenuOptionBuilder().setLabel('أمر استلام التكت (!استلام)').setValue('cmd_claim').setDescription('أزرار استلام وإلغاء استلام التكّت').setEmoji('📌'),
+          new StringSelectMenuOptionBuilder().setLabel('أمر استلام التكت (!استلام)').setValue('cmd_claim').setDescription('أزرار استلام وإلغاء استلاستلام التكّت').setEmoji('📌'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الضريبة التلقائي (!ضريبة)').setValue('cmd_tax').setDescription('حاسبة ضريبة بروبوت تلقائياً').setEmoji('💰'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الاقتراحات (!اقتراحات)').setValue('cmd_suggestions').setDescription('ضبط رومات الاقتراحات التلقائية').setEmoji('💡'),
           new StringSelectMenuOptionBuilder().setLabel('أمر الباند والفك (!ban / !unban)').setValue('cmd_ban').setDescription('شرح حظر وفك حظر الأعضاء').setEmoji('🔨'),
