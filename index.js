@@ -1547,5 +1547,5 @@ require('./system.js')(client, '!');
 const wepRouter = require('./wep.js')(pool, client);
 
 // 2. تفعيل الموديول في التطبيق
-app.use('/', requireAuth, wepRouter); // إذا كنت تستخدم requireAuth للحماية
+app.use('/', wepRouter); // إذا كنت تستخدم requireAuth للحماية
 client.login(process.env.DISCORD_TOKEN);
