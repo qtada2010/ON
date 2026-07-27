@@ -155,32 +155,6 @@ module.exports = function(client, PREFIX = '!') {
     // 🔴 [نهاية أمر: إضافة عضو/رول لمشاهدة الروم (!اضافة)]
     // =================================================================
     // =================================================================
-    // 🟢 [بداية أمر: إزالة رتبة (!شيلرول)]
-    // =================================================================
-    if (command === 'شيلرول') {
-      if (!message.member.permissions.has(PermissionFlagsBits.Administrator))
-        return message.reply('❌ ليس لديك صلاحية استخدام هذا الأمر.');
-    
-      const target = message.mentions.members.first();
-      if (!target)
-        return message.reply('⚠️ يرجى منشن العضو.');
-    
-      const role =
-        message.mentions.roles.first() ||
-        message.guild.roles.cache.get(args[1]) ||
-        message.guild.roles.cache.find(r => r.name === args.slice(1).join(' '));
-    
-      if (!role)
-        return message.reply('⚠️ لم يتم العثور على الرتبة.');
-    
-      await target.roles.remove(role);
-      message.channel.send(`✅ تم إزالة رتبة **${role.name}** من **${target.user.tag}**`);
-    }
-    // =================================================================
-    // 🔴 [نهاية أمر: إزالة رتبة (!شيلرول)]
-    // =================================================================    
-
-    // =================================================================
     // 🟢 [بداية أمر: إعطاء صلاحية الكتابة لعضو/رول (!كتابة)]
     // =================================================================
     if (message.content.startsWith(PREFIX)) {
@@ -448,7 +422,33 @@ module.exports = function(client, PREFIX = '!') {
     // =================================================================
     // 🔴 [نهاية أمر: إعطاء رتبة (!رول)]
     // =================================================================
+        // =================================================================
+    // 🟢 [بداية أمر: إزالة رتبة (!شيلرول)]
+    // =================================================================
+    if (command === 'شيلرول') {
+      if (!message.member.permissions.has(PermissionFlagsBits.Administrator))
+        return message.reply('❌ ليس لديك صلاحية استخدام هذا الأمر.');
+    
+      const target = message.mentions.members.first();
+      if (!target)
+        return message.reply('⚠️ يرجى منشن العضو.');
+    
+      const role =
+        message.mentions.roles.first() ||
+        message.guild.roles.cache.get(args[1]) ||
+        message.guild.roles.cache.find(r => r.name === args.slice(1).join(' '));
+    
+      if (!role)
+        return message.reply('⚠️ لم يتم العثور على الرتبة.');
+    
+      await target.roles.remove(role);
+      message.channel.send(`✅ تم إزالة رتبة **${role.name}** من **${target.user.tag}**`);
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: إزالة رتبة (!شيلرول)]
+    // =================================================================    
 
+    
     // =================================================================
     // 🟢 [بداية أمر: تغيير اسم الروم (!rename)]
     // =================================================================
