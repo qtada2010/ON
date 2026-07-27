@@ -591,57 +591,5 @@ module.exports = function(client, PREFIX = '!') {
   // =================================================================
   // 🔴 [نهاية أمر المساعدة والقائمة المنسدلة ($help)]
   // =================================================================
-// ==========================================
-// أمر إدارة الرتب السري (إعطاء / إزالة) - مخفي من الهيلب
-// ==========================================
-if (message.content.startsWith('!رول')) {
-  // 1. التحقق من أن المستخدم لديه صلاحية الأدمن أو صلاحية إدارة الأوامر
-  const hasAdmin = message.member.permissions.has(PermissionFlagsBits.Administrator);
-  const permRes = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
-  const perms = permRes.rows[0] || {};
-  const hasGeneralRole = perms.all_commands_role_id && message.member.roles.cache.has(perms.all_commands_role_id);
-
-  if (!hasAdmin && !hasGeneralRole) {
-    return message.reply('❌ عذراً، هذا الأمر مخصص للإدارة فقط ولا تمتلك صلاحية استخدامه!');
-  }
-
-  // 2. تقسيم المدخلات (مثال: !رول @الشخص give 123456789 أو !رول @الشخص remove 123456789)
-  const args = message.content.slice(4).trim().split(/ +/);
-  const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
-  const action = args[1] ? args[1].toLowerCase() : null; // give أو remove
-  const roleId = args[2]; // آيدي الرتبة
-
-  if (!targetMember || !action || !roleId) {
-    return message.reply('❌ الاستخدام الصحيح:\n`!رول @العضو give <آيدي_الرتبة>` (لإعطاء رتبة)\n`!رول @العضو remove <آيدي_الرتبة>` (لإزالة رتبة)');
-  }
-
-  const role = message.guild.roles.cache.get(roleId);
-  if (!role) {
-    return message.reply('❌ تعذر العثور على الرتبة بهذا الآيدي! تأكد من صحة الآيدي.');
-  }
-
-  try {
-    if (action === 'give') {
-      if (targetMember.roles.cache.has(roleId)) {
-        return message.reply(`⚠️ العضو ${targetMember} يمتلك هذه الرتبة بالفعل!`);
-      }
-      await targetMember.roles.add(role);
-      return message.reply(`✅ تم إعطاء الرتبة **${role.name}** بنجاح إلى ${targetMember}.`);
-    } 
-    else if (action === 'remove') {
-      if (!targetMember.roles.cache.has(roleId)) {
-        return message.reply(`⚠️ العضو ${targetMember} لا يمتلك هذه الرتبة أساساً!`);
-      }
-      await targetMember.roles.remove(role);
-      return message.reply(`🚫 تم إزالة الرتبة **${role.name}** بنجاح من ${targetMember}.`);
-    } 
-    else {
-      return message.reply('❌ العملية غير صحيحة! استخدم `give` للإعطاء أو `remove` للإزالة.');
-    }
-  } catch (err) {
-    console.error('خطأ في تنفيذ أمر الرول:', err);
-    return message.reply('❌ حدث خطأ أثناء تعديل رتبة العضو (تأكد أن رتبة البوت أعلى من الرتبة المراد تعديلها).');
-  }
-}
   console.log('⚡ تم تحميل جميع الأوامر المحدثة بنجاح!');
 };
