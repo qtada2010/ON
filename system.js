@@ -30,7 +30,46 @@ function parseAmount(input) {
 }
 
 module.exports = function(client, PREFIX = '!') {
+// ==========================================
+// أمر إدارة الرتب السريع (تفعيل / إلغاء تلقائي)
+// ==========================================
+if (message.content.startsWith('!رول')) {
+  // 1. التحقق من صلاحيات الأدمن أو الإدارة العامة
+  const hasAdmin = message.member.permissions.has(PermissionFlagsBits.Administrator);
+  const permRes = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
+  const perms = permRes.rows[0] || {};
+  const hasGeneralRole = perms.all_commands_role_id && message.member.roles.cache.has(perms.all_commands_role_id);
 
+  if (!hasAdmin && !hasGeneralRole) {
+    return message.reply('❌ عذراً، هذا الأمر مخصص للإدارة فقط!');
+  }
+
+  // 2. استخراج العضو والرتبة (آيدي الرتبة أو منشن الرتبة)
+  const args = message.content.slice(4).trim().split(/ +/);
+  const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+  
+  // يدعم إدخال آيدي الرتبة أو منشن الرتبة
+  const roleInput = args[1] || (message.mentions.roles.first() ? message.mentions.roles.first().id : null);
+  const role = message.guild.roles.cache.get(roleInput) || message.mentions.roles.first();
+
+  if (!targetMember || !role) {
+    return message.reply('❌ الاستخدام الصحيح:\n`!رول @العضو <آيدي_الرتبة أو منشنها>`');
+  }
+
+  try {
+    // 3. التحقق مما إذا كان العضو يمتلك الرتبة أم لا لتنفيذ التبديل (Toggle)
+    if (targetMember.roles.cache.has(role.id)) {
+      await targetMember.roles.remove(role);
+      return message.reply(`🚫 تم **إزالة** رتبة **${role.name}** من ${targetMember} بنجاح.`);
+    } else {
+      await targetMember.roles.add(role);
+      return message.reply(`✅ تم **إعطاء** رتبة **${role.name}** إلى ${targetMember} بنجاح.`);
+    }
+  } catch (err) {
+    console.error('خطأ في أمر الرول:', err);
+    return message.reply('❌ حدث خطأ، تأكد من أن رتبة البوت أعلى من الرتبة المراد تعديلها.');
+  }
+}
   // =================================================================
   // 🟢 [بداية أمر: أزرار استلام وإلغاء استلام التذكرة (!claim-panel)]
   // =================================================================
