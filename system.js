@@ -396,7 +396,34 @@ module.exports = function(client, PREFIX = '!') {
     // =================================================================
     // 🔴 [نهاية أمر: مسح الرسائل (!مسح / !clear)]
     // =================================================================
+        // =================================================================
+    // 🟢 [بداية أمر: إعطاء رتبة (!رول)]
+    // =================================================================
+    if (command === 'رول') {
+      if (!message.member.permissions.has(PermissionFlagsBits.Administrator))
+        return message.reply('❌ ليس لديك صلاحية استخدام هذا الأمر.');
 
+      const target = message.mentions.members.first();
+      if (!target)
+        return message.reply('⚠️ يرجى منشن العضو.');
+
+      const role =
+        message.mentions.roles.first() ||
+        message.guild.roles.cache.get(args[1]) ||
+        message.guild.roles.cache.find(r => r.name === args.slice(1).join(' '));
+
+      if (!role)
+        return message.reply('⚠️ لم يتم العثور على الرتبة.');
+
+      if (!role.editable)
+        return message.reply('❌ لا أستطيع إعطاء هذه الرتبة.');
+
+      await target.roles.add(role);
+      message.channel.send(`✅ تم إعطاء رتبة **${role.name}** إلى **${target.user.tag}**`);
+    }
+    // =================================================================
+    // 🔴 [نهاية أمر: إعطاء رتبة (!رول)]
+    // =================================================================
 
     // =================================================================
     // 🟢 [بداية أمر: تغيير اسم الروم (!rename)]
