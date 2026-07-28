@@ -415,7 +415,6 @@ app.get('/delete-panel/:id', requireAuth, async (req, res) => {
   await pool.query('DELETE FROM panels WHERE panel_id = $1', [req.params.id]);
   res.redirect('/panel');
 });
-
 app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
   const panel = pRes.rows[0];
@@ -468,7 +467,49 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
         </form>
       </div>
     `;
-  }); // <-- هذا القوس كان مفقوداً في نسختك!
+  });
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head><meta charset="UTF-8"><title>تعديل اللوحة الشامل ${panel.panel_id}</title></head>
+    <body style="font-family:sans-serif; background:#0f172a; color:#f8fafc; margin:0; padding:30px;">
+      <div style="max-width:900px; margin:auto; background:#1e293b; padding:30px; border-radius:12px; border:1px solid #334155;">
+        <a href="/panel" style="color:#38bdf8; text-decoration:none;">⬅ العودة لإدارة اللوحات</a>
+        <h1 style="color:#38bdf8;">⚙️ التعديل الشامل للبانل: ${panel.title}</h1>
+
+        <form action="/update-panel-main-secure" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom:25px;">
+          <input type="hidden" name="panelId" value="${panel.panel_id}">
+          <h3 style="color:#38bdf8; margin-top:0;">📌 محتوى البانل الأساسي:</h3>
+          
+          <div style="display:flex; gap:15px; margin-bottom:15px;">
+            <div style="flex:3;">
+              <label style="color:#cbd5e1; font-weight:bold;">عنوان اللوحة:</label>
+              <input type="text" name="title" value="${panel.title || ''}" required style="width:100%; padding:8px; margin-top:5px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
+            </div>
+            <div style="flex:1;">
+              <label style="color:#cbd5e1; font-weight:bold;">لون الإيمبد:</label>
+              <input type="color" name="color" value="${panel.color || '#0284c7'}" style="width:100%; height:38px; margin-top:5px; background:#1e293b; border:1px solid #334155; border-radius:4px; cursor:pointer;">
+            </div>
+          </div>
+
+          <label style="color:#cbd5e1; font-weight:bold;">وصف اللوحة:</label>
+          <textarea name="description" rows="4" required style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">${panel.description || ''}</textarea>
+
+          <label style="color:#cbd5e1; font-weight:bold;">رابط الصورة (Image/Banner URL):</label>
+          <input type="url" name="imageUrl" value="${panel.image_url || ''}" placeholder="https://example.com/image.png" style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
+
+          <button type="submit" style="background:#8b5cf6; color:white; padding:10px; border:none; border-radius:6px; font-weight:bold; width:100%; cursor:pointer;">💾 حفظ التعديلات الأساسية للبانل</button>
+        </form>
+
+        <hr style="border-color:#334155; margin:25px 0;">
+        <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
+        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>'}
+      </div>
+    </body>
+    </html>
+  `);
+});
 
   res.send(`
     <!DOCTYPE html>
