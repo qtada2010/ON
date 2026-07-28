@@ -140,7 +140,6 @@ const client = new Client({
 const PREFIX = '!';
 const ADMIN_PREFIX = '$';
 
-// تشغيل نظام الأوامر الإضافية من system.js
 loadSystemCommands(client, PREFIX);
 
 // ==========================================
@@ -231,7 +230,7 @@ app.get('/', requireAuth, (req, res) => {
       </nav>
       <div class="container">
         <h1>🎮 لوحة التحكم الإدارية</h1>
-        <p style="color:#94a3b8;">إدارة التذاكر مع رتبة وكاتيجوري مخصص لكل خيار.</p>
+        <p style="color:#94a3b8;">إدارة اللوحات والأزرار مع التعديل الكامل.</p>
         <div style="margin-top: 30px;">
           <a href="/panel" class="btn">🛠️ إدارة لوحات التذاكر</a>
           <a href="/apply-setup" class="btn" style="background:#eab308; color:#000;">📝 تقديم الإدارة</a>
@@ -261,7 +260,7 @@ app.get('/panel', requireAuth, async (req, res) => {
         </div>
         <div>
           <a href="/edit-panel/${p.panel_id}" style="background:#0284c7; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold; margin-left:5px;">✏️ تعديل</a>
-          <a href="/delete-panel/${p.panel_id}" onclick="return confirm('حذف اللوحة؟')" style="background:#ef4444; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold;">🗑️ حذف</a>
+          <a href="/delete-panel/${p.panel_id}" onclick="return confirm('حذف اللوحة بالكامل؟')" style="background:#ef4444; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold;">🗑️ حذف</a>
         </div>
       </div>
     `;
@@ -295,7 +294,7 @@ app.get('/panel', requireAuth, async (req, res) => {
         <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1 style="color:#38bdf8;">➕ إنشاء لوحة تذاكر</h1>
+        <h1 style="color:#38bdf8;">➕ إنشاء لوحة تذاكر جديدة</h1>
         <form action="/create-panel" method="POST">
           <label>معرف اللوحة (Panel ID):</label>
           <input type="text" name="panelId" placeholder="support" required>
@@ -326,10 +325,10 @@ app.get('/panel', requireAuth, async (req, res) => {
           <label>آيدي روم السجل (Log):</label><input type="text" name="logChannelId" required>
           <label>العنوان:</label><input type="text" name="title" value="الدعم الفني" required>
           <label>الوصف:</label><textarea name="description" rows="2" required>اختر القسم المناسب</textarea>
-          <button type="submit">حفظ والانتقال لإضافة الأزرار ➡️</button>
+          <button type="submit">حفظ والانتقال لإدارة الأزرار ➡️</button>
         </form>
         <hr style="margin: 30px 0; border-color: #334155;">
-        <h2 style="color:#38bdf8;">📋 اللوحات:</h2>
+        <h2 style="color:#38bdf8;">📋 اللوحات الحالية:</h2>
         ${panelsListHTML || '<p>لا توجد لوحات.</p>'}
       </div>
     </body>
@@ -357,7 +356,7 @@ app.get('/delete-panel/:id', requireAuth, async (req, res) => {
   res.redirect('/panel');
 });
 
-// صفحة التعديل وإضافة الخيارات مع الرتب والكاتيجوري الخاص
+// صفحة تعديل البانل والأزرار (مع دعم التعديل الكامل للبانل وأزراره)
 app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
   const panel = pRes.rows[0];
@@ -370,12 +369,14 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
     optionsHTML += `
       <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color:#eab308; font-weight:bold;">#${index + 1} ${opt.label}</span>
-          <a href="/delete-option/${opt.id}/${panel.panel_id}" style="color:#ef4444; font-weight:bold; text-decoration:none;">🗑️ حذف</a>
+          <span style="color:#eab308; font-weight:bold;">#${index + 1} ${opt.emoji || ''} ${opt.label}</span>
+          <div>
+            <a href="/edit-option/${opt.id}" style="background:#3b82f6; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:13px; font-weight:bold; margin-left:5px;">✏️ تعديل الزر</a>
+            <a href="/delete-option/${opt.id}/${panel.panel_id}" style="color:#ef4444; font-weight:bold; text-decoration:none; font-size:13px;">🗑️ حذف</a>
+          </div>
         </div>
         <p style="margin:5px 0; color:#38bdf8; font-size:13px;">
-          🛡️ رتبة الإدارة الخاصة: <strong>${opt.custom_admin_role_id || 'افتراضية'}</strong><br>
-          📁 آيدي الكاتيجوري المخصص: <strong>${opt.custom_category_id || 'افتراضي'}</strong>
+          📝 الوصف: ${opt.description || 'لا يوجد'} | 🛡️ رتبة خاصة: <strong>${opt.custom_admin_role_id || 'افتراضية'}</strong> | 📁 كاتيجوري خاص: <strong>${opt.custom_category_id || 'افتراضي'}</strong>
         </p>
       </div>
     `;
@@ -386,7 +387,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
     <html lang="ar" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>تعديل ${panel.panel_id}</title>
+      <title>تعديل اللوحة ${panel.panel_id}</title>
       <style>
         body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
         nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
@@ -396,6 +397,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
         input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
         .btn-add { background: #10b981; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 15px; }
         .btn-send { background: #0284c7; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; }
+        .section-box { background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom: 25px; }
       </style>
     </head>
     <body>
@@ -410,34 +412,123 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
         <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1 style="color:#38bdf8;">⚙️ تعديل الأزرار: ${panel.title}</h1>
-        <form action="/add-option" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155;">
-          <input type="hidden" name="panelId" value="${panel.panel_id}">
-          <label>اسم الزر / الخيار:</label><input type="text" name="label" required>
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;"><label>الوصف:</label><input type="text" name="description"></div>
-            <div style="flex:1;"><label>الإيموجي:</label><input type="text" name="emoji"></div>
-          </div>
-          <div style="display:flex; gap:15px; margin-top:10px;">
-            <div style="flex:1;"><label style="color:#38bdf8;">🛡️ آيدي رتبة الإدارة الخاصة:</label><input type="text" name="customAdminRoleId" placeholder="اختياري"></div>
-            <div style="flex:1;"><label style="color:#38bdf8;">📁 آيدي الكاتيجوري الخاص:</label><input type="text" name="customCategoryId" placeholder="اختياري"></div>
-          </div>
-          <label>رسالة الترحيب:</label><textarea name="welcomeMessage" rows="2" required>أهلاً بك!</textarea>
-          <button type="submit" class="btn-add">➕ إضافة الزر</button>
-        </form>
-        <hr style="margin: 30px 0; border-color: #334155;">
-        <h2 style="color:#38bdf8;">📋 الخيارات الحالية:</h2>
-        ${optionsHTML || '<p>لا توجد خيارات.</p>'}
-        ${optionsRes.rows.length > 0 ? `
-          <form action="/publish-panel" method="POST" style="margin-top:20px;">
+        <h1 style="color:#38bdf8;">⚙️ إعدادات وتعديل البانل: ${panel.panel_id}</h1>
+        
+        <div class="section-box">
+          <h3 style="color:#38bdf8; margin-top:0;">📝 تعديل إعدادات اللوحة (البانل)</h3>
+          <form action="/update-panel-settings" method="POST">
             <input type="hidden" name="panelId" value="${panel.panel_id}">
-            <button type="submit" class="btn-send">🚀 نشر اللوحة بالديسكورد</button>
+            <div style="display:flex; gap:15px;">
+              <div style="flex:1;"><label>العنوان:</label><input type="text" name="title" value="${panel.title}" required></div>
+              <div style="flex:1;"><label>آيدي روم النشر:</label><input type="text" name="channelId" value="${panel.channel_id}" required></div>
+            </div>
+            <label>الوصف:</label><textarea name="description" rows="2" required>${panel.description}</textarea>
+            <div style="display:flex; gap:15px;">
+              <div style="flex:1;"><label>آيدي الكاتيجوري الافتراضي:</label><input type="text" name="categoryId" value="${panel.category_id}" required></div>
+              <div style="flex:1;"><label>آيدي روم السجل (Log):</label><input type="text" name="logChannelId" value="${panel.log_channel_id}" required></div>
+            </div>
+            <div style="display:flex; gap:15px;">
+              <div style="flex:1;"><label>آيدي رتبة الإدارة العامة:</label><input type="text" name="adminRoleId" value="${panel.admin_role_id}" required></div>
+              <div style="flex:1;"><label>آيدي رتبة الإدارة العليا:</label><input type="text" name="highAdminRoleId" value="${panel.high_admin_role_id}" required></div>
+            </div>
+            <button type="submit" style="background:#0284c7; margin-top:15px;">💾 حفظ تعديلات البانل</button>
+          </form>
+        </div>
+
+        <div class="section-box">
+          <h3 style="color:#10b981; margin-top:0;">➕ إضافة زر / خيار جديد</h3>
+          <form action="/add-option" method="POST">
+            <input type="hidden" name="panelId" value="${panel.panel_id}">
+            <label>اسم الزر / الخيار:</label><input type="text" name="label" required>
+            <div style="display:flex; gap:15px;">
+              <div style="flex:1;"><label>الوصف:</label><input type="text" name="description"></div>
+              <div style="flex:1;"><label>الإيموجي:</label><input type="text" name="emoji"></div>
+            </div>
+            <div style="display:flex; gap:15px; margin-top:10px;">
+              <div style="flex:1;"><label style="color:#38bdf8;">🛡️ آيدي رتبة الإدارة الخاصة (اختياري):</label><input type="text" name="customAdminRoleId"></div>
+              <div style="flex:1;"><label style="color:#38bdf8;">📁 آيدي الكاتيجوري الخاص (اختياري):</label><input type="text" name="customCategoryId"></div>
+            </div>
+            <label>رسالة الترحيب داخل التذكرة:</label><textarea name="welcomeMessage" rows="2" required>أهلاً بك في تذكرتك!</textarea>
+            <button type="submit" class="btn-add">➕ إضافة الزر</button>
+          </form>
+        </div>
+
+        <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
+        ${optionsHTML || '<p>لا توجد خيارات أو أزرار مضافة.</p>'}
+
+        ${optionsRes.rows.length > 0 ? `
+          <form action="/publish-panel" method="POST" style="margin-top:25px; text-align:center;">
+            <input type="hidden" name="panelId" value="${panel.panel_id}">
+            <button type="submit" class="btn-send">🚀 نشر / تحديث اللوحة في الديسكورد</button>
           </form>
         ` : ''}
       </div>
     </body>
     </html>
   `);
+});
+
+// حفظ تعديلات البانل الأساسية
+app.post('/update-panel-settings', requireAuth, async (req, res) => {
+  const d = req.body;
+  await pool.query(`
+    UPDATE panels SET title = $1, channel_id = $2, description = $3, category_id = $4, log_channel_id = $5, admin_role_id = $6, high_admin_role_id = $7
+    WHERE panel_id = $8;
+  `, [d.title, d.channelId.trim(), d.description, d.categoryId.trim(), d.logChannelId.trim(), d.adminRoleId.trim(), d.highAdminRoleId.trim(), d.panelId]);
+
+  res.redirect(`/edit-panel/${d.panelId}`);
+});
+
+// صفحة تعديل زر معين
+app.get('/edit-option/:optId', requireAuth, async (req, res) => {
+  const optRes = await pool.query('SELECT * FROM panel_options WHERE id = $1', [req.params.optId]);
+  const opt = optRes.rows[0];
+  if (!opt) return res.send('الزر غير موجود');
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>تعديل الزر</title>
+      <style>
+        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
+        .container { max-width: 600px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
+        label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; }
+        input, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        button { margin-top: 20px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2 style="color:#38bdf8;">✏️ تعديل الزر / الخيار</h2>
+        <form action="/update-option" method="POST">
+          <input type="hidden" name="optionIdNum" value="${opt.id}">
+          <input type="hidden" name="panelId" value="${opt.panel_id}">
+          <label>اسم الزر:</label><input type="text" name="label" value="${opt.label}" required>
+          <label>الوصف:</label><input type="text" name="description" value="${opt.description || ''}">
+          <label>الإيموجي:</label><input type="text" name="emoji" value="${opt.emoji || ''}">
+          <label style="color:#38bdf8;">🛡️ آيدي رتبة الإدارة الخاصة (اختياري):</label><input type="text" name="customAdminRoleId" value="${opt.custom_admin_role_id || ''}">
+          <label style="color:#38bdf8;">📁 آيدي الكاتيجوري الخاص (اختياري):</label><input type="text" name="customCategoryId" value="${opt.custom_category_id || ''}">
+          <label>رسالة الترحيب:</label><textarea name="welcomeMessage" rows="3" required>${opt.welcome_message}</textarea>
+          <button type="submit">💾 حفظ التعديلات</button>
+        </form>
+        <br>
+        <a href="/edit-panel/${opt.panel_id}" style="color:#94a3b8; text-decoration:none;">⬅️ العودة للبانل</a>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/update-option', requireAuth, async (req, res) => {
+  const d = req.body;
+  await pool.query(`
+    UPDATE panel_options SET label = $1, description = $2, emoji = $3, custom_admin_role_id = $4, custom_category_id = $5, welcome_message = $6
+    WHERE id = $7;
+  `, [d.label.trim(), d.description ? d.description.trim() : '', d.emoji ? d.emoji.trim() : '', d.customAdminRoleId ? d.customAdminRoleId.trim() : null, d.customCategoryId ? d.customCategoryId.trim() : null, d.welcomeMessage, d.optionIdNum]);
+
+  res.redirect(`/edit-panel/${d.panelId}`);
 });
 
 app.post('/add-option', requireAuth, async (req, res) => {
@@ -490,9 +581,9 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
     const sentMsg = await channel.send({ embeds: [embed], components });
     await pool.query('UPDATE panels SET last_message_id = $1 WHERE panel_id = $2', [sentMsg.id, panel.panel_id]);
 
-    res.send('<h2>✅ تم النشر بنجاح!</h2><a href="/panel">العودة</a>');
+    res.send('<h2>✅ تم نشر اللوحة بنجاح في القناة!</h2><a href="/panel">العودة لإدارة اللوحات</a>');
   } catch (err) {
-    res.send(`❌ خطأ: ${err.message}`);
+    res.send(`❌ خطأ أثناء النشر: ${err.message}`);
   }
 });
 
@@ -614,7 +705,6 @@ async function saveTranscript(channel, config, user, ticketData) {
   } catch(e) { return false; }
 }
 
-// دالة فتح التذكرة مع سحب الرتبة والكاتيجوري الخاص
 async function handleTicketCreation(interaction, optionId) {
   await interaction.deferReply({ ephemeral: true });
   try {
