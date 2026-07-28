@@ -19,7 +19,6 @@ const {
 const express = require('express');
 const { Pool } = require('pg');
 const discordTranscripts = require('discord-html-transcripts');
-const systemCommands = require('./system.js');
 
 // ==========================================
 // 1. الاتصال بقواعد البيانات وتحديث الهيكل
@@ -31,7 +30,6 @@ const pool = new Pool({
 
 async function initDatabase() {
   try {
-    // 1. جدول اللوحات الرئيسي للتذاكر
     await pool.query(`
       CREATE TABLE IF NOT EXISTS panels (
         panel_id VARCHAR(100) PRIMARY KEY,
@@ -58,7 +56,6 @@ async function initDatabase() {
       ALTER TABLE panels ADD COLUMN IF NOT EXISTS last_message_id VARCHAR(100);
     `);
 
-    // 2. جدول الخيارات/الأزرار للوحات
     await pool.query(`
       CREATE TABLE IF NOT EXISTS panel_options (
         id SERIAL PRIMARY KEY,
@@ -76,7 +73,6 @@ async function initDatabase() {
       ALTER TABLE panel_options ADD COLUMN IF NOT EXISTS button_style VARCHAR(20) DEFAULT 'Primary';
     `);
 
-    // 3. جدول صلاحيات الأزرار والأوامر
     await pool.query(`
       CREATE TABLE IF NOT EXISTS permissions (
         key VARCHAR(50) PRIMARY KEY,
@@ -96,7 +92,6 @@ async function initDatabase() {
       ALTER TABLE permissions ADD COLUMN IF NOT EXISTS save_permission VARCHAR(50) DEFAULT 'both';
     `);
 
-    // 4. جدول الإحصائيات
     await pool.query(`
       CREATE TABLE IF NOT EXISTS stats (
         key VARCHAR(50) PRIMARY KEY,
@@ -104,7 +99,6 @@ async function initDatabase() {
       );
     `);
 
-    // 5. جدول نظام تقديم الإدارة
     await pool.query(`
       CREATE TABLE IF NOT EXISTS apply_setup (
         id VARCHAR(50) PRIMARY KEY,
@@ -129,23 +123,7 @@ async function initDatabase() {
       ALTER TABLE apply_setup ADD COLUMN IF NOT EXISTS accepted_role_id VARCHAR(100);
     `);
 
-    // 6. جدول نقاط الإدارة
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS admin_points (
-        user_id VARCHAR(100) PRIMARY KEY,
-        points INT DEFAULT 0
-      );
-    `);
-
-    // 7. جدول تتبع التذاكر المستلمة
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ticket_claims (
-        channel_id VARCHAR(100) PRIMARY KEY,
-        claimed_by VARCHAR(100)
-      );
-    `);
-
-    console.log('🐘 تم تحديث الجداول وقاعدة البيانات بنجاح!');
+    console.log('🐘 تم تحديث الجداول بنجاح!');
   } catch (err) {
     console.error('❌ خطأ أثناء إعداد قاعدة البيانات:', err);
   }
@@ -168,33 +146,8 @@ const PREFIX = '!';
 const ADMIN_PREFIX = '$';
 let ownerLogChannelId = null;
 
-// تفعيل نظام الأوامر المساعدة مع تمرير قاعدة البيانات لنظام النقاط
-systemCommands(client, PREFIX, pool);
-
 // ==========================================
-// 3. دالة إرسال سجل اللوق (Log Sender)
-// ==========================================
-async function sendLog(guild, title, description, color = 0x38bdf8, fields = []) {
-  try {
-    if (!ownerLogChannelId) return;
-    const channel = await guild.channels.fetch(ownerLogChannelId).catch(() => null);
-    if (!channel) return;
-
-    const embed = new EmbedBuilder()
-      .setTitle(title)
-      .setDescription(description)
-      .setColor(color)
-      .setTimestamp();
-
-    if (fields.length > 0) embed.addFields(fields);
-    await channel.send({ embeds: [embed] });
-  } catch (e) {
-    console.error('خطأ في إرسال اللوق:', e);
-  }
-}
-
-// ==========================================
-// 4. خادم الويب ولوحة التحكم (Express)
+// 3. خادم الويب ولوحة التحكم الشاملة (Express)
 // ==========================================
 const app = express();
 app.use(express.json());
@@ -282,12 +235,11 @@ app.get('/', requireAuth, (req, res) => {
         <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
       </nav>
       <div class="container">
-        <h1>🎮 لوحة التحكم الإدارية البوت</h1>
-        <p style="text-align:center; color:#94a3b8;">تحكم كامل بالتذاكر، الأزرار، الصور، النقاط، وصلاحيات الأوامر.</p>
+        <h1>🎮 لوحة التحكم الإدارية المطلقة</h1>
         <div style="text-align:center; margin-top: 30px;">
           <a href="/panel" class="btn">🛠️ إدارة لوحات التذاكر</a>
-          <a href="/apply-setup" class="btn" style="background:#eab308; color:#000;">📝 إعداد تقديم الإدارة</a>
-          <a href="/admin-commands" class="btn" style="background:#8b5cf6;">🛡️ ضبط صلاحيات الأوامر</a>
+          <a href="/apply-setup" class="btn" style="background:#eab308; color:#000;">📝 إعداد نظام تقديم الإدارة</a>
+          <a href="/admin-commands" class="btn" style="background:#8b5cf6;">🛡️ ضبط صلاحيات الأوامر للأزرار</a>
           <a href="/stats" class="btn" style="background:#059669;">📊 الإحصائيات الشاملة</a>
         </div>
       </div>
@@ -296,120 +248,49 @@ app.get('/', requireAuth, (req, res) => {
   `);
 });
 
-// إدارة اللوحات
 app.get('/panel', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM panels');
   let panelsListHTML = '';
-
   for (const p of result.rows) {
     const optionsRes = await pool.query('SELECT COUNT(*) FROM panel_options WHERE panel_id = $1', [p.panel_id]);
-    const optionsCount = optionsRes.rows[0].count;
-
     panelsListHTML += `
       <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
         <div>
           <h3 style="margin:0; color:#38bdf8;">📌 المعرف: ${p.panel_id} - ${p.title}</h3>
-          <p style="margin:5px 0 0 0; color:#94a3b8; font-size:14px;">
-            النوع: <strong>${p.type === 'select' ? 'قائمة منسدلة 📜' : 'أزرار 🔘'}</strong> | 
-            اللون: <span style="display:inline-block; width:12px; height:12px; background:${p.color || '#0284c7'}; border-radius:50%;"></span> ${p.color || '#0284c7'} |
-            الخيارات: <strong>${optionsCount}</strong>
-          </p>
         </div>
         <div>
           <a href="/edit-panel/${p.panel_id}" style="background:#0284c7; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold; margin-left:5px;">✏️ تعديل</a>
-          <a href="/delete-panel/${p.panel_id}" onclick="return confirm('هل أنت متأكد من حذف هذه اللوحة؟')" style="background:#ef4444; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold;">🗑️ حذف</a>
+          <a href="/delete-panel/${p.panel_id}" style="background:#ef4444; color:white; padding:8px 15px; border-radius:5px; text-decoration:none; font-weight:bold;">🗑️ حذف</a>
         </div>
       </div>
     `;
   }
-
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>إدارة اللوحات</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
-        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
-        .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
-        h1, h2 { color: #38bdf8; }
-        label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; }
-        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        button { margin-top: 20px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-      </style>
+    <head><meta charset="UTF-8"><title>إدارة اللوحات</title>
+    <style>body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; } nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; } nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; } .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; } h1, h2 { color: #38bdf8; } label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; } input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; } button { margin-top: 20px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }</style>
     </head>
     <body>
-      <nav>
-        <div class="links">
-          <a href="/">الرئيسية 🏠</a>
-          <a href="/panel">إدارة التذاكر ⚙️</a>
-          <a href="/apply-setup">تقديم الإدارة 📝</a>
-          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
-          <a href="/stats">الإحصائيات 📊</a>
-        </div>
-        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
-      </nav>
+      <nav><div class="links"><a href="/">الرئيسية 🏠</a><a href="/panel">إدارة التذاكر ⚙️</a><a href="/apply-setup">تقديم الإدارة 📝</a><a href="/admin-commands">صلاحيات الأوامر 🛡️</a><a href="/stats">الإحصائيات 📊</a></div><a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a></nav>
       <div class="container">
-        <h1>➕ إنشاء / إضافة لوحة تذاكر جديدة</h1>
+        <h1>➕ إنشاء / إضافة لوحة جديدة</h1>
         <form action="/create-panel" method="POST">
-          <label>معرف اللوحة الفريد (Panel ID):</label>
-          <input type="text" name="panelId" placeholder="main_support_panel" required>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;">
-              <label>نوع التفاعل باللوحة:</label>
-              <select name="type">
-                <option value="buttons">أزرار تفاعلية (Buttons) 🔘</option>
-                <option value="select">قائمة منسدلة (Select Menu) 📜</option>
-              </select>
-            </div>
-            <div style="flex:1;">
-              <label>نوع الرسالة:</label>
-              <select name="messageType">
-                <option value="embed">رسالة إيمبد (Embed) 🎨</option>
-                <option value="plain">رسالة نصية عادية 💬</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;">
-              <label>لون الخط الجانبي للإيمبد (Color):</label>
-              <input type="color" name="color" value="#0284c7" style="height:40px;">
-            </div>
-            <div style="flex:2;">
-              <label>رابط الصورة المرفقة مع اللوحة (Image URL):</label>
-              <input type="url" name="imageUrl" placeholder="https://i.imgur.com/example.png">
-            </div>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;"><label>آيدي روم اللوحة:</label><input type="text" name="channelId" required></div>
-            <div style="flex:1;"><label>آيدي كاتيجوري التذاكر:</label><input type="text" name="categoryId" required></div>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;"><label>آيدي رتبة الإدارة العادية:</label><input type="text" name="adminRoleId" required></div>
-            <div style="flex:1;"><label>آيدي رتبة الإدارة العليا:</label><input type="text" name="highAdminRoleId" required></div>
-          </div>
-
-          <label>آيدي روم اللوق (سجل الترانسكريبت):</label>
-          <input type="text" name="logChannelId" required>
-
-          <label>عنوان اللوحة:</label>
-          <input type="text" name="title" value="تكت الدعم الفني 🎫" required>
-
-          <label>وصف اللوحة:</label>
-          <textarea name="description" rows="2" required>اختر القسم المناسب من الأسفل لفتح تذكرة مباشرة.</textarea>
-
-          <button type="submit">حفظ اللوحة والانتقال لإضافة الأزرار ➡️</button>
+          <label>معرف اللوحة الفريد (Panel ID):</label><input type="text" name="panelId" required>
+          <label>نوع التفاعل:</label><select name="type"><option value="buttons">أزرار</option><option value="select">قائمة منسدلة</option></select>
+          <label>نوع الرسالة:</label><select name="messageType"><option value="embed">إيمبد</option><option value="plain">عادية</option></select>
+          <label>آيدي روم اللوحة:</label><input type="text" name="channelId" required>
+          <label>آيدي كاتيجوري التذاكر:</label><input type="text" name="categoryId" required>
+          <label>آيدي رتبة الإدارة العادية:</label><input type="text" name="adminRoleId" required>
+          <label>آيدي رتبة الإدارة العليا:</label><input type="text" name="highAdminRoleId" required>
+          <label>آيدي روم اللوق:</label><input type="text" name="logChannelId" required>
+          <label>عنوان اللوحة:</label><input type="text" name="title" value="تكت الدعم الفني" required>
+          <label>وصف اللوحة:</label><textarea name="description" rows="2" required>اختر القسم المناسب من الأسفل لفتح تذكرة.</textarea>
+          <button type="submit">حفظ وانتقال للأزرار ➡️</button>
         </form>
-
         <hr style="margin: 30px 0; border-color: #334155;">
         <h2>📋 اللوحات المسجلة:</h2>
-        ${panelsListHTML || '<p>لا توجد لوحات منشأة حالياً.</p>'}
+        ${panelsListHTML || '<p>لا توجد لوحات.</p>'}
       </div>
     </body>
     </html>
@@ -422,19 +303,11 @@ app.post('/create-panel', requireAuth, async (req, res) => {
     INSERT INTO panels (panel_id, channel_id, category_id, admin_role_id, high_admin_role_id, log_channel_id, title, description, type, message_type, image_url, color)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     ON CONFLICT (panel_id) DO UPDATE SET
-      channel_id = EXCLUDED.channel_id,
-      category_id = EXCLUDED.category_id,
-      admin_role_id = EXCLUDED.admin_role_id,
-      high_admin_role_id = EXCLUDED.high_admin_role_id,
-      log_channel_id = EXCLUDED.log_channel_id,
-      title = EXCLUDED.title,
-      description = EXCLUDED.description,
-      type = EXCLUDED.type,
-      message_type = EXCLUDED.message_type,
-      image_url = EXCLUDED.image_url,
-      color = EXCLUDED.color;
+      channel_id = EXCLUDED.channel_id, category_id = EXCLUDED.category_id,
+      admin_role_id = EXCLUDED.admin_role_id, high_admin_role_id = EXCLUDED.high_admin_role_id,
+      log_channel_id = EXCLUDED.log_channel_id, title = EXCLUDED.title, description = EXCLUDED.description,
+      type = EXCLUDED.type, message_type = EXCLUDED.message_type, image_url = EXCLUDED.image_url, color = EXCLUDED.color;
   `, [d.panelId.trim(), d.channelId.trim(), d.categoryId.trim(), d.adminRoleId.trim(), d.highAdminRoleId.trim(), d.logChannelId.trim(), d.title, d.description, d.type, d.messageType, d.imageUrl ? d.imageUrl.trim() : null, d.color]);
-
   res.redirect(`/edit-panel/${d.panelId.trim()}`);
 });
 
@@ -447,141 +320,46 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
   const panel = pRes.rows[0];
   if (!panel) return res.send('اللوحة غير موجودة');
-
   const optionsRes = await pool.query('SELECT * FROM panel_options WHERE panel_id = $1 ORDER BY id ASC', [panel.panel_id]);
   let optionsHTML = '';
-
   optionsRes.rows.forEach((opt, index) => {
     optionsHTML += `
       <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="color:#eab308; font-weight:bold;">#${index + 1} الزر: ${opt.label}</span>
-          <a href="/delete-option/${opt.id}/${panel.panel_id}" style="color:#ef4444; font-weight:bold; text-decoration:none;">🗑️ حذف</a>
-        </div>
-        <p style="margin:5px 0; color:#94a3b8; font-size:14px;">لون الزر: <strong>${opt.button_style}</strong> | الإيموجي: ${opt.emoji || 'بدون'}</p>
-        <p style="margin:5px 0; color:#38bdf8; font-size:13px;">رسالة الترحيب: ${opt.welcome_message}</p>
+        <span style="color:#eab308; font-weight:bold;">#${index + 1} الخيار: ${opt.label}</span>
+        <a href="/delete-option/${opt.id}/${panel.panel_id}" style="color:#ef4444; float:left; text-decoration:none;">🗑️ حذف</a>
       </div>
     `;
   });
-
   res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>تعديل اللوحة ${panel.panel_id}</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
-        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
-        .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
-        h1, h2, h3 { color: #38bdf8; }
-        label { display: block; margin-top: 10px; font-weight: bold; color:#cbd5e1; }
-        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        .btn-add { background: #10b981; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 15px; }
-        .btn-send { background: #0284c7; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; font-size: 15px; }
-        .btn-update { background: #f59e0b; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; font-size: 15px; }
-      </style>
+    <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تعديل اللوحة</title>
+    <style>body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; } nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; } nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; } .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; } h1, h2 { color: #38bdf8; } label { display: block; margin-top: 10px; font-weight: bold; color:#cbd5e1; } input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }</style>
     </head>
     <body>
-      <nav>
-        <div class="links">
-          <a href="/">الرئيسية 🏠</a>
-          <a href="/panel">إدارة التذاكر ⚙️</a>
-          <a href="/apply-setup">تقديم الإدارة 📝</a>
-          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
-          <a href="/stats">الإحصائيات 📊</a>
-        </div>
-        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
-      </nav>
+      <nav><div class="links"><a href="/">الرئيسية 🏠</a><a href="/panel">إدارة التذاكر ⚙️</a><a href="/apply-setup">تقديم الإدارة 📝</a><a href="/admin-commands">صلاحيات الأوامر 🛡️</a><a href="/stats">الإحصائيات 📊</a></div><a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a></nav>
       <div class="container">
-        <h1>⚙️ تعديل وتخصيص اللوحة: ${panel.title}</h1>
-
-        <form action="/update-panel-settings" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom: 25px;">
-          <input type="hidden" name="panelId" value="${panel.panel_id}">
-          
-          <label>عنوان اللوحة:</label>
-          <input type="text" name="title" value="${panel.title}" required>
-
-          <label>وصف اللوحة:</label>
-          <textarea name="description" rows="2" required>${panel.description}</textarea>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;">
-              <label>لون الخط الجانبي للإيمبد (Color):</label>
-              <input type="color" name="color" value="${panel.color || '#0284c7'}" style="height:40px;">
-            </div>
-            <div style="flex:2;">
-              <label>رابط الصورة المرفقة بالبانل (Image URL):</label>
-              <input type="url" name="imageUrl" value="${panel.image_url || ''}" placeholder="https://i.imgur.com/example.png">
-            </div>
-          </div>
-
-          <button type="submit" style="background:#0284c7; margin-top:15px;">💾 حفظ التعديلات العامة للبانل</button>
-        </form>
-
-        <h2>➕ إضافة زر / خيار جديد للوحة:</h2>
+        <h1>⚙️ التحكم في اللوحة: ${panel.title}</h1>
+        <h2>➕ إضافة خيار جديد:</h2>
         <form action="/add-option" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155;">
           <input type="hidden" name="panelId" value="${panel.panel_id}">
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:2;">
-              <label>اسم الزر (Label):</label>
-              <input type="text" name="label" placeholder="مثال: قسم الشكاوي" required>
-            </div>
-            <div style="flex:1;">
-              <label>لون الزر (Button Style):</label>
-              <select name="buttonStyle">
-                <option value="Primary">أزرق (Primary)</option>
-                <option value="Secondary">رمادي (Secondary)</option>
-                <option value="Success">أخضر (Success)</option>
-                <option value="Danger">أحمر (Danger)</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:2;"><label>الوصف الفرعي:</label><input type="text" name="description" placeholder="فتح تذكرة للشكاوي"></div>
-            <div style="flex:1;"><label>الإيموجي:</label><input type="text" name="emoji" placeholder="🛡️"></div>
-          </div>
-
-          <label>رسالة الترحيب داخل التكت عند اختيار هذا الزر:</label>
-          <textarea name="welcomeMessage" rows="2" required>أهلاً بك، تم فتح التذكرة بنجاح.</textarea>
-
-          <button type="submit" class="btn-add">➕ إضافة الزر</button>
+          <label>اسم الزر:</label><input type="text" name="label" required>
+          <label>لون الزر:</label><select name="buttonStyle"><option value="Primary">أزرق</option><option value="Secondary">رمادي</option><option value="Success">أخضر</option><option value="Danger">أحمر</option></select>
+          <label>الوصف:</label><input type="text" name="description">
+          <label>الإيموجي:</label><input type="text" name="emoji">
+          <label>رسالة الترحيب بالتكت:</label><textarea name="welcomeMessage" rows="2" required>أهلاً بك!</textarea>
+          <button type="submit" style="background:#10b981; color:#fff; border:none; padding:10px; width:100%; border-radius:5px; margin-top:10px;">إضافة</button>
         </form>
-
-        <hr style="margin: 30px 0; border-color: #334155;">
-        <h2>📋 الأزرار الحالية (${optionsRes.rows.length}):</h2>
-        ${optionsHTML || '<p>لا توجد أزرار مضافة لهذه اللوحة بعد.</p>'}
-
+        <hr style="margin:30px 0; border-color:#334155;">
+        <h2>الخيارات الحالية:</h2>
+        ${optionsHTML || '<p>لا توجد خيارات.</p>'}
         ${optionsRes.rows.length > 0 ? `
-          <div style="display:flex; justify-content:space-between; margin-top:20px;">
-            <form action="/publish-panel" method="POST" style="width:48%;">
-              <input type="hidden" name="panelId" value="${panel.panel_id}">
-              <input type="hidden" name="mode" value="update">
-              <button type="submit" class="btn-update">🔄 تحديث رسالة البانل بالديسكورد</button>
-            </form>
-
-            <form action="/publish-panel" method="POST" style="width:48%;">
-              <input type="hidden" name="panelId" value="${panel.panel_id}">
-              <input type="hidden" name="mode" value="new">
-              <button type="submit" class="btn-send">🚀 إرسال بانل جديد بروم جديد</button>
-            </form>
-          </div>
+          <form action="/publish-panel" method="POST" style="margin-top:20px;">
+            <input type="hidden" name="panelId" value="${panel.panel_id}">
+            <button type="submit" style="background:#0284c7; color:#fff; padding:12px; border:none; width:100%; border-radius:6px; font-weight:bold;">🚀 إرسال / تحديث اللوحة بالديسكورد</button>
+          </form>
         ` : ''}
       </div>
-    </body>
-    </html>
+    </body></html>
   `);
-});
-
-app.post('/update-panel-settings', requireAuth, async (req, res) => {
-  const d = req.body;
-  await pool.query(`
-    UPDATE panels SET title = $1, description = $2, color = $3, image_url = $4 WHERE panel_id = $5
-  `, [d.title, d.description, d.color, d.imageUrl ? d.imageUrl.trim() : null, d.panelId]);
-  res.redirect(`/edit-panel/${d.panelId}`);
 });
 
 app.post('/add-option', requireAuth, async (req, res) => {
@@ -591,7 +369,6 @@ app.post('/add-option', requireAuth, async (req, res) => {
     INSERT INTO panel_options (panel_id, option_id, label, description, emoji, welcome_message, button_style)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
   `, [d.panelId, optionId, d.label.trim(), d.description ? d.description.trim() : '', d.emoji ? d.emoji.trim() : '', d.welcomeMessage, d.buttonStyle]);
-
   res.redirect(`/edit-panel/${d.panelId}`);
 });
 
@@ -601,43 +378,26 @@ app.get('/delete-option/:optId/:panelId', requireAuth, async (req, res) => {
 });
 
 app.post('/publish-panel', requireAuth, async (req, res) => {
-  const { panelId, mode } = req.body;
+  const { panelId } = req.body;
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [panelId]);
   const panel = pRes.rows[0];
   const optionsRes = await pool.query('SELECT * FROM panel_options WHERE panel_id = $1 ORDER BY id ASC', [panelId]);
-
-  if (!panel || optionsRes.rows.length === 0) {
-    return res.send('❌ يجب إضافة خيار واحد على الأقل قبل إرسال أو تحديث اللوحة!');
-  }
+  if (!panel || optionsRes.rows.length === 0) return res.send('❌ أضف خياراً واحداً على الأقل!');
 
   try {
     const channel = await client.channels.fetch(panel.channel_id);
     if (!channel) return res.send('❌ تعذر الوصول لروم اللوحة بالديسكورد!');
 
     const components = [];
-
     if (panel.type === 'select') {
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`ticket_select_${panel.panel_id}`)
-        .setPlaceholder('اختر القسم المطلوب من هنا... 🔽');
-
+      const selectMenu = new StringSelectMenuBuilder().setCustomId(`ticket_select_${panel.panel_id}`).setPlaceholder('اختر القسم المطلوب...');
       optionsRes.rows.forEach(opt => {
-        const optionBuilder = new StringSelectMenuOptionBuilder()
-          .setLabel(opt.label)
-          .setValue(opt.option_id);
-
-        if (opt.description && opt.description.trim() !== '') {
-          optionBuilder.setDescription(opt.description.trim());
-        }
-        if (opt.emoji && opt.emoji.trim() !== '') {
-          try { optionBuilder.setEmoji(opt.emoji.trim()); } catch (e) {}
-        }
-
+        const optionBuilder = new StringSelectMenuOptionBuilder().setLabel(opt.label).setValue(opt.option_id);
+        if (opt.description) optionBuilder.setDescription(opt.description);
+        if (opt.emoji) { try { optionBuilder.setEmoji(opt.emoji); } catch(e){} }
         selectMenu.addOptions(optionBuilder);
       });
-
       components.push(new ActionRowBuilder().addComponents(selectMenu));
-
     } else {
       let currentRow = new ActionRowBuilder();
       optionsRes.rows.forEach((opt, idx) => {
@@ -645,308 +405,186 @@ app.post('/publish-panel', requireAuth, async (req, res) => {
           components.push(currentRow);
           currentRow = new ActionRowBuilder();
         }
-
         let style = ButtonStyle.Primary;
         if (opt.button_style === 'Secondary') style = ButtonStyle.Secondary;
         if (opt.button_style === 'Success') style = ButtonStyle.Success;
         if (opt.button_style === 'Danger') style = ButtonStyle.Danger;
 
-        const btn = new ButtonBuilder()
-          .setCustomId(`ticket_btn_${opt.option_id}`)
-          .setLabel(opt.label)
-          .setStyle(style);
-
-        if (opt.emoji && opt.emoji.trim() !== '') {
-          try { btn.setEmoji(opt.emoji.trim()); } catch (e) {}
-        }
-
+        const btn = new ButtonBuilder().setCustomId(`ticket_btn_${opt.option_id}`).setLabel(opt.label).setStyle(style);
+        if (opt.emoji) { try { btn.setEmoji(opt.emoji); } catch(e){} }
         currentRow.addComponents(btn);
       });
       components.push(currentRow);
     }
 
-    let messagePayload = {};
+    let payload = panel.message_type === 'embed' ? { embeds: [new EmbedBuilder().setTitle(panel.title).setDescription(panel.description).setColor(panel.color || '#0284c7')], components } : { content: `**${panel.title}**\n\n${panel.description}`, components };
+    const sentMessage = await channel.send(payload);
+    await pool.query('UPDATE panels SET last_message_id = $1 WHERE panel_id = $2', [sentMessage.id, panel.panel_id]);
 
-    if (panel.message_type === 'embed') {
-      const embed = new EmbedBuilder()
-        .setTitle(panel.title)
-        .setDescription(panel.description)
-        .setColor(panel.color || '#0284c7');
-
-      if (panel.image_url) embed.setImage(panel.image_url);
-
-      messagePayload = { embeds: [embed], components: components };
-    } else {
-      let contentText = `**${panel.title}**\n\n${panel.description}`;
-      if (panel.image_url) contentText += `\n${panel.image_url}`;
-      messagePayload = { content: contentText, components: components };
-    }
-
-    let sentMessage;
-    if (mode === 'update' && panel.last_message_id) {
-      try {
-        const oldMsg = await channel.messages.fetch(panel.last_message_id);
-        if (oldMsg) sentMessage = await oldMsg.edit(messagePayload);
-      } catch (e) {}
-    }
-
-    if (!sentMessage) {
-      sentMessage = await channel.send(messagePayload);
-      await pool.query('UPDATE panels SET last_message_id = $1 WHERE panel_id = $2', [sentMessage.id, panel.panel_id]);
-    }
-
-    res.send('<h2>✅ تم نشر/تحديث اللوحة بنجاح بداخل السيرفر مع الألوان والصور الجديدة!</h2><a href="/panel">العودة لوحة التحكم</a>');
+    res.send('<h2>✅ تم نشر اللوحة بنجاح!</h2><a href="/panel">العودة</a>');
   } catch (err) {
-    console.error('خطأ أثناء نشر اللوحة:', err);
-    res.send(`❌ حدث خطأ أثناء الإرسال: ${err.message}`);
+    res.send(`❌ خطأ: ${err.message}`);
   }
 });
 
-// إعداد تقديم الإدارة
 app.get('/apply-setup', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
   const appData = result.rows[0] || {};
-
   res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>إعداد تقديم الإدارة</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
-        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
-        .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
-        h1, h2 { color: #38bdf8; }
-        label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; }
-        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        button { margin-top: 25px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-      </style>
+    <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تقديم الإدارة</title>
+    <style>body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; } nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; } nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; } .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; } h1, h2 { color: #eab308; } label { display: block; margin-top: 12px; font-weight: bold; color:#cbd5e1; } input, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }</style>
     </head>
     <body>
-      <nav>
-        <div class="links">
-          <a href="/">الرئيسية 🏠</a>
-          <a href="/panel">إدارة التذاكر ⚙️</a>
-          <a href="/apply-setup">تقديم الإدارة 📝</a>
-          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
-          <a href="/stats">الإحصائيات 📊</a>
-        </div>
-        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
-      </nav>
+      <nav><div class="links"><a href="/">الرئيسية 🏠</a><a href="/panel">إدارة التذاكر ⚙️</a><a href="/apply-setup">تقديم الإدارة 📝</a><a href="/admin-commands">صلاحيات الأوامر 🛡️</a><a href="/stats">الإحصائيات 📊</a></div><a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a></nav>
       <div class="container">
         <h1>📝 إعداد نموذج تقديم الإدارة</h1>
         <form action="/save-apply-setup" method="POST">
-          <label>عنوان بنر التقديم:</label>
-          <input type="text" name="title" value="${appData.title || 'تقديم على الإدارة 🎖️'}" required>
-          <label>وصف بنر التقديم:</label>
-          <textarea name="description" rows="2" required>${appData.description || 'اضغط على الزر أدناه لفتح نموذج التقديم.'}</textarea>
-          <label>رابط صورة البنر (Image URL):</label>
-          <input type="url" name="imageUrl" value="${appData.image_url || ''}">
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;"><label>آيدي روم إرسال البنر:</label><input type="text" name="submitChannelId" value="${appData.submit_channel_id || ''}" required></div>
-            <div style="flex:1;"><label>آيدي روم مراجعة التقديمات:</label><input type="text" name="reviewChannelId" value="${appData.review_channel_id || ''}" required></div>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;"><label>آيدي روم نتائج القبول/الرفض:</label><input type="text" name="resultsChannelId" value="${appData.results_channel_id || ''}" required></div>
-            <div style="flex:1;"><label>آيدي رتبة الإدارة العليا للمراجعة:</label><input type="text" name="highAdminRoleId" value="${appData.high_admin_role_id || ''}" required></div>
-          </div>
-
-          <label>آيدي رتبة الإدارة (التي تُعطى تلقائياً عند القبول):</label>
-          <input type="text" name="acceptedRoleId" value="${appData.accepted_role_id || ''}" required>
-
-          <hr style="margin: 25px 0; border-color: #334155;">
-          <h2>❓ أسئلة التقديم:</h2>
-          <label>السؤال الأول:</label><input type="text" name="q1" value="${appData.q1 || 'ما هو اسمك وعمرك؟'}" required>
-          <label>السؤال الثاني:</label><input type="text" name="q2" value="${appData.q2 || 'لماذا تريد الانضمام للإدارة؟'}" required>
-          <label>السؤال الثالث:</label><input type="text" name="q3" value="${appData.q3 || 'كم تتفاعل يومياً بالسيرفر؟'}" required>
-          <label>السؤال الرابع:</label><input type="text" name="q4" value="${appData.q4 || 'هل لديك خبرة سابقة؟'}" required>
-          <label>السؤال الخامس (اختياري):</label><input type="text" name="q5" value="${appData.q5 || ''}">
-
-          <button type="submit" style="background:#10b981;">💾 حفظ إعدادات التقديم ونشر البنر بالديسكورد</button>
+          <label>آيدي روم استقبال التقديم:</label><input type="text" name="submitChannelId" value="${appData.submit_channel_id || ''}" required>
+          <label>آيدي روم مراجعة الإدارة:</label><input type="text" name="reviewChannelId" value="${appData.review_channel_id || ''}" required>
+          <label>آيدي روم نتائج التقديم:</label><input type="text" name="resultsChannelId" value="${appData.results_channel_id || ''}" required>
+          <label>آيدي رتبة الإدارة العليا (للمراجعة والقبول):</label><input type="text" name="highAdminRoleId" value="${appData.high_admin_role_id || ''}" required>
+          <label>آيدي رتبة المقبول (التي تُعطى تلقائياً عند الضغط قبول):</label><input type="text" name="acceptedRoleId" value="${appData.accepted_role_id || ''}" required>
+          <label>عنوان البنر:</label><input type="text" name="title" value="${appData.title || 'تقديم الإدارة'}" required>
+          <label>الوصف:</label><textarea name="description" rows="2" required>${appData.description || 'اضغط على الزر أدناه للتقديم.'}</textarea>
+          <label>السؤال الأول:</label><input type="text" name="q1" value="${appData.q1 || 'اسمك وعمرك؟'}" required>
+          <label>السؤال الثاني:</label><input type="text" name="q2" value="${appData.q2 || 'خبرتك؟'}" required>
+          <label>السؤال الثالث:</label><input type="text" name="q3" value="${appData.q3 || 'لماذا تريد الانضمام؟'}" required>
+          <label>السؤال الرابع:</label><input type="text" name="q4" value="${appData.q4 || 'كم تتفاعل يومياً؟'}" required>
+          <button type="submit" style="margin-top:20px; background:#eab308; color:#000; padding:12px; border:none; width:100%; border-radius:6px; font-weight:bold;">💾 حفظ ونشر بالديسكورد</button>
         </form>
       </div>
-    </body>
-    </html>
+    </body></html>
   `);
 });
 
 app.post('/save-apply-setup', requireAuth, async (req, res) => {
   const d = req.body;
   await pool.query(`
-    INSERT INTO apply_setup (id, title, description, image_url, submit_channel_id, review_channel_id, results_channel_id, high_admin_role_id, accepted_role_id, q1, q2, q3, q4, q5)
-    VALUES ('main_apply', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    INSERT INTO apply_setup (id, title, description, submit_channel_id, review_channel_id, results_channel_id, high_admin_role_id, accepted_role_id, q1, q2, q3, q4)
+    VALUES ('main_apply', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (id) DO UPDATE SET
-      title = EXCLUDED.title, description = EXCLUDED.description, image_url = EXCLUDED.image_url,
+      title = EXCLUDED.title, description = EXCLUDED.description,
       submit_channel_id = EXCLUDED.submit_channel_id, review_channel_id = EXCLUDED.review_channel_id,
       results_channel_id = EXCLUDED.results_channel_id, high_admin_role_id = EXCLUDED.high_admin_role_id,
-      accepted_role_id = EXCLUDED.accepted_role_id, q1 = EXCLUDED.q1, q2 = EXCLUDED.q2, q3 = EXCLUDED.q3, q4 = EXCLUDED.q4, q5 = EXCLUDED.q5;
-  `, [d.title, d.description, d.imageUrl ? d.imageUrl.trim() : null, d.submitChannelId.trim(), d.reviewChannelId.trim(), d.resultsChannelId.trim(), d.highAdminRoleId.trim(), d.acceptedRoleId.trim(), d.q1, d.q2, d.q3, d.q4, d.q5]);
+      accepted_role_id = EXCLUDED.accepted_role_id, q1 = EXCLUDED.q1, q2 = EXCLUDED.q2, q3 = EXCLUDED.q3, q4 = EXCLUDED.q4;
+  `, [d.title, d.description, d.submitChannelId.trim(), d.reviewChannelId.trim(), d.resultsChannelId.trim(), d.highAdminRoleId.trim(), d.acceptedRoleId.trim(), d.q1, d.q2, d.q3, d.q4]);
 
   try {
-    const channel = await client.channels.fetch(d.submitChannelId.trim());
-    if (channel) {
-      const applyEmbed = new EmbedBuilder().setTitle(d.title).setDescription(d.description).setColor(0xeab308).setTimestamp();
-      if (d.imageUrl) applyEmbed.setImage(d.imageUrl.trim());
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('start_apply_form').setLabel('تقديم على الإدارة').setStyle(ButtonStyle.Success).setEmoji('📝')
-      );
-      const msg = await channel.send({ embeds: [applyEmbed], components: [row] });
+    const ch = await client.channels.fetch(d.submitChannelId.trim());
+    if (ch) {
+      const embed = new EmbedBuilder().setTitle(d.title).setDescription(d.description).setColor('#eab308');
+      const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('start_apply_form').setLabel('تقديم على الإدارة 📝').setStyle(ButtonStyle.Success));
+      const msg = await ch.send({ embeds: [embed], components: [row] });
       await pool.query('UPDATE apply_setup SET last_message_id = $1 WHERE id = $2', [msg.id, 'main_apply']);
     }
-  } catch (e) {}
+  } catch(e) {}
 
-  res.send('<h2>✅ تم حفظ ونشر بنر التقديم بنجاح!</h2><a href="/apply-setup">العودة</a>');
+  res.send('<h2>✅ تم حفظ الإعدادات ونشر بنر التقديم!</h2><a href="/apply-setup">العودة</a>');
 });
 
-// صلاحيات الأوامر
 app.get('/admin-commands', requireAuth, async (req, res) => {
-  const result = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
-  const perms = result.rows[0] || {};
-
+  const pRes = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_perms']);
+  const perms = pRes.rows[0] || {};
   res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>صلاحيات الأوامر والأزرار</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
-        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
-        .container { max-width: 850px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
-        h1, h2 { color: #38bdf8; }
-        label { display: block; margin-top: 15px; font-weight: bold; color:#cbd5e1; }
-        input, select { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
-        button { margin-top: 25px; width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-      </style>
+    <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>صلاحيات الأوامر</title>
+    <style>body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; } nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; } nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; } .container { max-width: 850px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; } h1, h2 { color: #38bdf8; } label { display: block; margin-top: 15px; font-weight: bold; color:#cbd5e1; } input, select { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }</style>
     </head>
     <body>
-      <nav>
-        <div class="links">
-          <a href="/">الرئيسية 🏠</a>
-          <a href="/panel">إدارة التذاكر ⚙️</a>
-          <a href="/apply-setup">تقديم الإدارة 📝</a>
-          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
-          <a href="/stats">الإحصائيات 📊</a>
-        </div>
-        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
-      </nav>
+      <nav><div class="links"><a href="/">الرئيسية 🏠</a><a href="/panel">إدارة التذاكر ⚙️</a><a href="/apply-setup">تقديم الإدارة 📝</a><a href="/admin-commands">صلاحيات الأوامر 🛡️</a><a href="/stats">الإحصائيات 📊</a></div><a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a></nav>
       <div class="container">
-        <h1>🛡️ ضبط صلاحيات أزرار وأوامر التذاكر</h1>
+        <h1>🛡️ ضبط صلاحيات الأوامر والأزرار</h1>
         <form action="/save-admin-commands" method="POST">
-          <h2>📌 أزرار التكت:</h2>
-          <div style="display:flex; gap:15px;">
-            <div style="flex:1;">
-              <label>إغلاق التكت (Close):</label>
-              <select name="closePermission">
-                <option value="both" ${perms.close_permission === 'both' ? 'selected' : ''}>صاحب التكت والإدارة</option>
-                <option value="admin_only" ${perms.close_permission === 'admin_only' ? 'selected' : ''}>الإدارة فقط</option>
-              </select>
-            </div>
-            <div style="flex:1;">
-              <label>حذف التكت (Delete):</label>
-              <select name="deletePermission">
-                <option value="high_admin" ${perms.delete_permission === 'high_admin' ? 'selected' : ''}>الإدارة العليا فقط</option>
-                <option value="all_admin" ${perms.delete_permission === 'all_admin' ? 'selected' : ''}>جميع الإدارة</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="margin-top:15px;">
-            <label>حفظ الترانسكريبت (Save Transcript):</label>
-            <select name="savePermission">
-              <option value="both" ${perms.save_permission === 'both' ? 'selected' : ''}>صاحب التكت والإدارة</option>
-              <option value="admin_only" ${perms.save_permission === 'admin_only' ? 'selected' : ''}>الإدارة فقط</option>
-            </select>
-          </div>
-
-          <button type="submit">💾 حفظ إعدادات الصلاحيات</button>
+          <label>إغلاق التكت:</label>
+          <select name="closePermission">
+            <option value="both" ${perms.close_permission === 'both' ? 'selected' : ''}>صاحب التكت والإدارة</option>
+            <option value="admin_only" ${perms.close_permission === 'admin_only' ? 'selected' : ''}>الإدارة فقط</option>
+          </select>
+          <label>حذف التكت:</label>
+          <select name="deletePermission">
+            <option value="high_admin" ${perms.delete_permission === 'high_admin' ? 'selected' : ''}>الإدارة العليا فقط</option>
+            <option value="all_admin" ${perms.delete_permission === 'all_admin' ? 'selected' : ''}>جميع الإدارة</option>
+          </select>
+          <label>حفظ الترانسكريبت:</label>
+          <select name="savePermission">
+            <option value="both" ${perms.save_permission === 'both' ? 'selected' : ''}>الإدارة العليا والعادية</option>
+            <option value="admin_only" ${perms.save_permission === 'admin_only' ? 'selected' : ''}>الإدارة العليا فقط</option>
+          </select>
+          <button type="submit" style="margin-top:25px; width:100%; padding:12px; background:#0284c7; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">💾 حفظ الصلاحيات</button>
         </form>
       </div>
-    </body>
-    </html>
+    </body></html>
   `);
 });
 
 app.post('/save-admin-commands', requireAuth, async (req, res) => {
-  const d = req.body;
+  const { closePermission, deletePermission, savePermission } = req.body;
   await pool.query(`
     INSERT INTO permissions (key, close_permission, delete_permission, save_permission)
-    VALUES ('main_permissions', $1, $2, $3)
+    VALUES ('main_perms', $1, $2, $3)
     ON CONFLICT (key) DO UPDATE SET
       close_permission = EXCLUDED.close_permission,
       delete_permission = EXCLUDED.delete_permission,
       save_permission = EXCLUDED.save_permission;
-  `, [d.closePermission, d.deletePermission, d.savePermission]);
-
-  res.send('<h2>✅ تم حفظ الصلاحيات بنجاح!</h2><a href="/admin-commands">العودة</a>');
+  `, [closePermission, deletePermission, savePermission]);
+  res.send('<h2>✅ تم الحفظ بنجاح!</h2><a href="/admin-commands">العودة</a>');
 });
 
-// الإحصائيات
 app.get('/stats', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT total_tickets FROM stats WHERE key = $1', ['main_stats']);
   const totalTickets = result.rows[0] ? result.rows[0].total_tickets : 0;
-
   res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>الإحصائيات</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
-        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
-        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
-        .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
-        h1, h2 { color: #38bdf8; }
-      </style>
+    <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>الإحصائيات</title>
+    <style>body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; } nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; } nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; } .container { max-width: 800px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; } h1, h2 { color: #38bdf8; }</style>
     </head>
     <body>
-      <nav>
-        <div class="links">
-          <a href="/">الرئيسية 🏠</a>
-          <a href="/panel">إدارة التذاكر ⚙️</a>
-          <a href="/apply-setup">تقديم الإدارة 📝</a>
-          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
-          <a href="/stats">الإحصائيات 📊</a>
-        </div>
-        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
-      </nav>
+      <nav><div class="links"><a href="/">الرئيسية 🏠</a><a href="/panel">إدارة التذاكر ⚙️</a><a href="/apply-setup">تقديم الإدارة 📝</a><a href="/admin-commands">صلاحيات الأوامر 🛡️</a><a href="/stats">الإحصائيات 📊</a></div><a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a></nav>
       <div class="container">
-        <h1>📊 إحصائيات البوت</h1>
-        <div style="background:#0f172a; padding:20px; border-radius:8px; text-align:center; border:1px solid #334155;">
-          <h3 style="color:#38bdf8; margin:0;">إجمالي التذاكر التي تم فتحها حتى الآن:</h3>
-          <p style="font-size:36px; color:#10b981; font-weight:bold; margin:10px 0 0 0;">${totalTickets} 🎫</p>
-        </div>
+        <h1>📊 الإحصائيات</h1>
+        <h2>إجمالي التذاكر المفتوحة: <span style="color:#10b981;">${totalTickets}</span></h2>
       </div>
-    </body>
-    </html>
+    </body></html>
   `);
 });
 
-// تشغيل أحداث الديسكورد
+app.listen(process.env.PORT || 3000, () => console.log('🌐 خادم لوحة التحكم يعمل بنجاح!'));
+
+// ==========================================
+// 4. أوامر البوت ومعالجة التذاكر والأزرار
+// ==========================================
 client.on('ready', async () => {
-  console.log(`🚀 تم تسجيل الدخول بنجاح باسم ${client.user.tag}`);
+  console.log(`🤖 Bot is ready as ${client.user.tag}`);
+  try {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: [new SlashCommandBuilder().setName('help').setDescription('عرض قائمة المساعدة')] }
+    );
+  } catch (e) {}
 });
 
+// دوال مساعدة للتذاكر
 async function saveTranscript(channel, config, user, ticketData) {
   try {
     const logChannel = await channel.guild.channels.fetch(config.log_channel_id).catch(() => null);
     if (!logChannel) return false;
 
     const attachment = await discordTranscripts.createTranscript(channel, {
-      limit: -1, returnType: 'attachment', filename: `transcript-${channel.name}.html`, saveImages: true, poweredBy: false
+      limit: -1,
+      returnType: 'attachment',
+      filename: `transcript-${channel.name}.html`,
+      saveImages: true,
+      poweredBy: false
     });
 
     const embed = new EmbedBuilder()
-      .setTitle('📁 سجل تذكرة مغلقة (Transcript)')
-      .setDescription(`تم حفظ محادثة التذكرة بواسطة: ${user}`)
-      .addFields({ name: '👤 صاحب التكت:', value: `<@${ticketData.ownerId}>`, inline: true }, { name: '📌 اسم القناة:', value: channel.name, inline: true })
-      .setColor(0x0284c7).setTimestamp();
+      .setTitle('📁 سجل ترانسكريبت تذكرة')
+      .addFields(
+        { name: '👤 صاحب التذكرة:', value: `<@${ticketData.ownerId}>`, inline: true },
+        { name: '🔒 بواسطة:', value: `${user}`, inline: true },
+        { name: '📌 اسم التذكرة:', value: `${channel.name}`, inline: false }
+      )
+      .setColor('#38bdf8')
+      .setTimestamp();
 
     await logChannel.send({ embeds: [embed], files: [attachment] });
     return true;
@@ -955,220 +593,101 @@ async function saveTranscript(channel, config, user, ticketData) {
   }
 }
 
-// التفاعلات والأزرار
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild) return;
+
+  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+
+  // نظام إضافة وإزالة الأعضاء من التذكرة
+  if (command === 'اضافة' || command === 'add') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ ليس لديك صلاحية.');
+    const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص!');
+    await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: true, SendMessages: true });
+    return message.reply(`✅ تم إضافة ${targetMember} إلى التذكرة.`);
+  }
+
+  if (command === 'remove') {
+    const isAdmin = message.member.permissions.has(PermissionFlagsBits.ManageChannels);
+    if (!isAdmin) return message.reply('❌ مخصص للإدارة فقط!');
+    const targetMember = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+    if (!targetMember) return message.reply('❌ يرجى منشن الشخص!');
+    await message.channel.permissionOverwrites.edit(targetMember.id, { ViewChannel: false, SendMessages: false });
+    return message.reply(`🚫 تم إزالة ${targetMember} من التذكرة.`);
+  }
+});
+
+// التعامل مع التفاعلات والأزرار
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. فتح التذكرة بالزر
-    if (interaction.isButton() && interaction.customId.startsWith('ticket_btn_')) {
-      const optionId = interaction.customId.replace('ticket_btn_', '');
-      const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
-      const option = optRes.rows[0];
-      if (!option) return interaction.reply({ content: '❌ هذا الخيار لم يعد متوفراً.', ephemeral: true });
-
-      const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
-      const config = panelRes.rows[0];
-
-      await interaction.deferReply({ ephemeral: true });
-
-      const ticketChannel = await interaction.guild.channels.create({
-        name: `ticket-${interaction.user.username}`,
-        type: ChannelType.GuildText,
-        parent: config.category_id,
-        permissionOverwrites: [
-          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-        ]
-      });
-
-      await pool.query(`INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1) ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;`);
-      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: config.panel_id }));
-
-      const welcomeEmbed = new EmbedBuilder()
-        .setTitle(`🎫 تذكرة جديدة: ${option.label}`)
-        .setDescription(option.welcome_message || 'أهلاً بك، تم فتح التذكرة بنجاح.')
-        .setColor(config.color || 0x0284c7).setTimestamp();
-
-      // أزرار التكت الأصلية (إغلاق، ترانسكريبت، حذف) + زر الاستلام الجديد (Claim) بدون تعديل صلاحيات التكت
-      const controlRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_claim').setLabel('استلام').setStyle(ButtonStyle.Success).setEmoji('🙋‍♂️'),
-        new ButtonBuilder().setCustomId('ticket_close').setLabel('إغلاق').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾'),
-        new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
-      );
-
-      await ticketChannel.send({ content: `${interaction.user} | <@&${config.admin_role_id}>`, embeds: [welcomeEmbed], components: [controlRow] });
-      return interaction.editReply({ content: `✅ تم إنشاء تذكرتك بنجاح: ${ticketChannel}` });
+    if (interaction.isChatInputCommand() && interaction.commandName === 'help') {
+      return interaction.reply({ content: '✅ بوت التذاكر يعمل بكفاءة عالية.', ephemeral: true });
     }
 
-    // 2. فتح التذكرة بالقائمة المنسدلة
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
-      const optionId = interaction.values[0];
-      const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
-      const option = optRes.rows[0];
-      if (!option) return interaction.reply({ content: '❌ هذا الخيار لم يعد متوفراً.', ephemeral: true });
-
-      const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
-      const config = panelRes.rows[0];
-
-      await interaction.deferReply({ ephemeral: true });
-
-      const ticketChannel = await interaction.guild.channels.create({
-        name: `ticket-${interaction.user.username}`,
-        type: ChannelType.GuildText,
-        parent: config.category_id,
-        permissionOverwrites: [
-          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-          { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-        ]
-      });
-
-      await pool.query(`INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1) ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;`);
-      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: config.panel_id }));
-
-      const welcomeEmbed = new EmbedBuilder()
-        .setTitle(`🎫 تذكرة جديدة: ${option.label}`)
-        .setDescription(option.welcome_message || 'أهلاً بك، تم فتح التذكرة بنجاح.')
-        .setColor(config.color || 0x0284c7).setTimestamp();
-
-      const controlRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_claim').setLabel('استلام').setStyle(ButtonStyle.Success).setEmoji('🙋‍♂️'),
-        new ButtonBuilder().setCustomId('ticket_close').setLabel('إغلاق').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾'),
-        new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
-      );
-
-      await ticketChannel.send({ content: `${interaction.user} | <@&${config.admin_role_id}>`, embeds: [welcomeEmbed], components: [controlRow] });
-      return interaction.editReply({ content: `✅ تم إنشاء تذكرتك بنجاح: ${ticketChannel}` });
-    }
-
-    // 3. أزرار التحكم داخل التكت (استلام، إغلاق، ترانسكريبت، حذف)
-    if (interaction.isButton() && ['ticket_claim', 'ticket_close', 'ticket_save_log', 'ticket_delete'].includes(interaction.customId)) {
-      const topic = interaction.channel.topic;
-      let ticketData = { ownerId: '' };
-      let config = { admin_role_id: '', high_admin_role_id: '', log_channel_id: '' };
-
-      try { if (topic) ticketData = JSON.parse(topic); } catch (e) {}
-
-      const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [ticketData.panelId || '']);
-      if (panelRes.rows.length > 0) config = panelRes.rows[0];
-
-      const member = interaction.member;
-      const isAdmin = member.roles.cache.has(config.admin_role_id);
-      const isHighAdmin = member.roles.cache.has(config.high_admin_role_id) || member.permissions.has(PermissionFlagsBits.Administrator);
-      const isOwner = interaction.user.id === ticketData.ownerId;
-
-      // زر الاستلام (Claim) مخصص للإدارة فقط ولا يغير صلاحيات التكت بل يعطي نقطة فقط
-      if (interaction.customId === 'ticket_claim') {
-        if (!isAdmin && !isHighAdmin) {
-          return interaction.reply({ content: '❌ زر الاستلام مخصص للإدارة فقط!', ephemeral: true });
-        }
-
-        const claimedCheck = await pool.query('SELECT * FROM ticket_claims WHERE channel_id = $1', [interaction.channel.id]);
-        if (claimedCheck.rows.length > 0) {
-          return interaction.reply({ content: `⚠️ تم استلام هذه التذكرة مسبقاً بواسطة <@${claimedCheck.rows[0].claimed_by}>!`, ephemeral: true });
-        }
-
-        await pool.query('INSERT INTO ticket_claims (channel_id, claimed_by) VALUES ($1, $2)', [interaction.channel.id, interaction.user.id]);
-        await pool.query(`
-          INSERT INTO admin_points (user_id, points) VALUES ($1, 1)
-          ON CONFLICT (user_id) DO UPDATE SET points = admin_points.points + 1;
-        `, [interaction.user.id]);
-
-        return interaction.reply({ content: `✅ تم استلام التذكرة بنجاح بواسطة ${interaction.user}! (+1 نقطة)` });
-      }
-
-      const permRes = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_permissions']);
-      const perms = permRes.rows[0] || { close_permission: 'both', delete_permission: 'high_admin', save_permission: 'both' };
-
-      if (interaction.customId === 'ticket_close') {
-        const closeAllowed = perms.close_permission === 'admin_only' ? (isAdmin || isHighAdmin) : (isOwner || isAdmin || isHighAdmin);
-        if (!closeAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية إغلاق التكت!', ephemeral: true });
-
-        await interaction.reply({ content: '🔒 جاري إغلاق التذكرة...' });
-        setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
-      }
-
-      if (interaction.customId === 'ticket_save_log') {
-        const saveAllowed = perms.save_permission === 'admin_only' ? (isAdmin || isHighAdmin) : (isOwner || isAdmin || isHighAdmin);
-        if (!saveAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية حفظ الترانسكريبت!', ephemeral: true });
-
-        await interaction.deferReply();
-        const success = await saveTranscript(interaction.channel, config, interaction.user, ticketData);
-        if (success) return interaction.editReply({ content: '✅ تم إنشاء ملف الترانسكريبت وإرساله إلى روم اللوق!' });
-        return interaction.editReply({ content: '❌ تعذر العثور على قناة اللوق أو حفظ السجل.' });
-      }
-
-      if (interaction.customId === 'ticket_delete') {
-        const deleteAllowed = perms.delete_permission === 'all_admin' ? (isAdmin || isHighAdmin) : isHighAdmin;
-        if (!deleteAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية حذف التكت!', ephemeral: true });
-
-        await interaction.reply({ content: '🗑️ سيتم حذف التذكرة خلال 3 ثوانٍ...' });
-        setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
-      }
-    }
-
-    // 4. تقديم الإدارة
+    // 1. التقديم للإدارة (Modal Submit)
     if (interaction.isButton() && interaction.customId === 'start_apply_form') {
-      const applyRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
-      const appData = applyRes.rows[0];
-      if (!appData) return interaction.reply({ content: '❌ نموذج التقديم غير مفعل حالياً.', ephemeral: true });
+      const appRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
+      const appData = appRes.rows[0];
+      if (!appData) return interaction.reply({ content: '❌ الإعدادات غير متوفرة.', ephemeral: true });
 
-      const modal = new ModalBuilder().setCustomId('apply_modal_submit').setTitle('نموذج التقديم على الإدارة');
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q1').setLabel(appData.q1.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q2').setLabel(appData.q2.substring(0, 45)).setStyle(TextInputStyle.Paragraph).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q3').setLabel(appData.q3.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q4').setLabel(appData.q4.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true))
-      );
-      if (appData.q5 && appData.q5.trim() !== '') {
-        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q5').setLabel(appData.q5.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(false)));
-      }
+      const modal = new ModalBuilder().setCustomId('submit_apply_modal').setTitle('نموذج التقديم للإدارة');
+      if (appData.q1) modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q1').setLabel(appData.q1.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)));
+      if (appData.q2) modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q2').setLabel(appData.q2.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)));
+      if (appData.q3) modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q3').setLabel(appData.q3.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)));
+      if (appData.q4) modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q4').setLabel(appData.q4.substring(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)));
+
       return interaction.showModal(modal);
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_submit') {
-      const applyRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
-      const appData = applyRes.rows[0];
-      const reviewChannel = await interaction.guild.channels.fetch(appData.review_channel_id).catch(() => null);
-      if (!reviewChannel) return interaction.reply({ content: '❌ تعذر العثور على روم مراجعة التقديمات.', ephemeral: true });
+    if (interaction.isModalSubmit() && interaction.customId === 'submit_apply_modal') {
+      await interaction.deferReply({ ephemeral: true });
+      const appRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
+      const appData = appRes.rows[0];
+      if (!appData) return interaction.editReply({ content: '❌ خطأ بالبيانات.' });
 
-      const ans1 = interaction.fields.getTextInputValue('q1');
-      const ans2 = interaction.fields.getTextInputValue('q2');
-      const ans3 = interaction.fields.getTextInputValue('q3');
-      const ans4 = interaction.fields.getTextInputValue('q4');
-      let ans5 = '';
-      try { ans5 = interaction.fields.getTextInputValue('q5'); } catch (e) {}
+      const q1Val = interaction.fields.getTextInputValue('q1');
+      const q2Val = interaction.fields.getTextInputValue('q2');
+      const q3Val = interaction.fields.getTextInputValue('q3');
+      const q4Val = interaction.fields.getTextInputValue('q4');
+
+      const reviewChannel = await interaction.guild.channels.fetch(appData.review_channel_id).catch(() => null);
+      if (!reviewChannel) return interaction.editReply({ content: '❌ تعذر العثور على روم مراجعة التقديم.' });
 
       const reviewEmbed = new EmbedBuilder()
-        .setTitle('📋 تقديم جديد للإدارة')
-        .setDescription(`مقدم الطلب: ${interaction.user} (${interaction.user.id})`)
-        .addFields({ name: `1️⃣ ${appData.q1}`, value: ans1 }, { name: `2️⃣ ${appData.q2}`, value: ans2 }, { name: `3️⃣ ${appData.q3}`, value: ans3 }, { name: `4️⃣ ${appData.q4}`, value: ans4 })
-        .setColor(0xeab308).setTimestamp();
+        .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
+        .setTitle('📝 تقديم إداري جديد')
+        .addFields(
+          { name: `1. ${appData.q1}`, value: q1Val },
+          { name: `2. ${appData.q2}`, value: q2Val },
+          { name: `3. ${appData.q3}`, value: q3Val },
+          { name: `4. ${appData.q4}`, value: q4Val }
+        )
+        .setColor('#eab308')
+        .setTimestamp();
 
-      if (ans5) reviewEmbed.addFields({ name: `5️⃣ ${appData.q5}`, value: ans5 });
-
-      const reviewRow = new ActionRowBuilder().addComponents(
+      const actionRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`apply_accept_${interaction.user.id}`).setLabel('قبول').setStyle(ButtonStyle.Success).setEmoji('✅'),
         new ButtonBuilder().setCustomId(`apply_reject_${interaction.user.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger).setEmoji('❌')
       );
 
-      await reviewChannel.send({ embeds: [reviewEmbed], components: [reviewRow] });
-      return interaction.reply({ content: '✅ تم إرسال تقديمك بنجاح للإدارة للمراجعة!', ephemeral: true });
+      await reviewChannel.send({ embeds: [reviewEmbed], components: [actionRow] });
+      return interaction.editReply({ content: '✅ تم إرسال تقديمك بنجاح للإدارة!' });
     }
 
+    // أزرار قبول/رفض التقديم للإدارة وإعطاء الرتبة التلقائية
     if (interaction.isButton() && (interaction.customId.startsWith('apply_accept_') || interaction.customId.startsWith('apply_reject_'))) {
-      const applyRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
-      const appData = applyRes.rows[0];
-      const isHighAdmin = interaction.member.roles.cache.has(appData.high_admin_role_id) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-      if (!isHighAdmin) return interaction.reply({ content: '❌ هذه الصلاحية خاصة بالإدارة العليا فقط!', ephemeral: true });
+      const appRes = await pool.query('SELECT * FROM apply_setup WHERE id = $1', ['main_apply']);
+      const appData = appRes.rows[0];
+      if (!appData) return interaction.reply({ content: '❌ بيانات التقديم غير موجودة.', ephemeral: true });
 
-      const isAccept = interaction.customId.startsWith('apply_accept_');
-      const targetUserId = interaction.customId.replace(isAccept ? 'apply_accept_' : 'apply_reject_', '');
+      const member = interaction.member;
+      const isHighAdmin = member.roles.cache.has(appData.high_admin_role_id) || member.permissions.has(PermissionFlagsBits.Administrator);
+      if (!isHighAdmin) return interaction.reply({ content: '❌ هذا الزر مخصص للإدارة العليا فقط!', ephemeral: true });
+
+      const targetUserId = interaction.customId.split('_')[2];
       const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+      const isAccept = interaction.customId.startsWith('apply_accept_');
 
       if (isAccept && targetMember && appData.accepted_role_id) {
         await targetMember.roles.add(appData.accepted_role_id).catch(() => {});
@@ -1176,22 +695,203 @@ client.on('interactionCreate', async (interaction) => {
 
       const resultsChannel = await interaction.guild.channels.fetch(appData.results_channel_id).catch(() => null);
       if (resultsChannel) {
-        const resultEmbed = new EmbedBuilder()
-          .setTitle(isAccept ? '🎉 مبارك لك قبولك في الإدارة!' : '❌ نعتذر منك، تم رفض طلبك')
-          .setDescription(isAccept ? `تم قبولك بواسطة ${interaction.user}` : `تم رفض الطلب بواسطة ${interaction.user}`)
-          .setColor(isAccept ? 0x10b981 : 0xef4444).setTimestamp();
-        await resultsChannel.send({ content: `<@${targetUserId}>`, embeds: [resultEmbed] }).catch(() => {});
+        await resultsChannel.send({ content: isAccept ? `✅ مبروك <@${targetUserId}> تم قبولك في الإدارة!` : `❌ نأسف <@${targetUserId}> تم رفض تقديمك.` }).catch(() => {});
       }
 
-      await interaction.update({ content: `✅ تم ${isAccept ? 'قبول' : 'رفض'} المتقدم بنجاح بواسطة ${interaction.user.tag}`, components: [] });
+      await interaction.update({ content: `${interaction.user} قام بـ **${isAccept ? 'قبول' : 'رفض'}** التقديم.`, components: [] });
+      return;
     }
 
-  } catch (err) {}
+    // 2. إنشاء التذاكر عبر الأزرار أو القوائم المنسدلة
+    let option = null;
+    let config = null;
+
+    if (interaction.isButton() && interaction.customId.startsWith('ticket_btn_')) {
+      const optionId = interaction.customId.replace('ticket_btn_', '');
+      const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
+      option = optRes.rows[0];
+      if (option) {
+        const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
+        config = panelRes.rows[0];
+      }
+    } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
+      const optionId = interaction.values[0];
+      const optRes = await pool.query('SELECT * FROM panel_options WHERE option_id = $1', [optionId]);
+      option = optRes.rows[0];
+      if (option) {
+        const panelRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [option.panel_id]);
+        config = panelRes.rows[0];
+      }
+    }
+
+    if (option && config) {
+      await interaction.deferReply({ ephemeral: true });
+
+      const ticketChannel = await interaction.guild.channels.create({
+        name: `ticket-${interaction.user.username}`,
+        type: ChannelType.GuildText,
+        parent: config.category_id,
+        permissionOverwrites: [
+          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+          { id: config.admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+          { id: config.high_admin_role_id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+        ]
+      });
+
+      await pool.query(`
+        INSERT INTO stats (key, total_tickets) VALUES ('main_stats', 1)
+        ON CONFLICT (key) DO UPDATE SET total_tickets = stats.total_tickets + 1;
+      `);
+
+      await ticketChannel.setTopic(JSON.stringify({ ownerId: interaction.user.id, panelId: config.panel_id }));
+
+      const welcomeEmbed = new EmbedBuilder()
+        .setTitle(`🎫 ${option.label}`)
+        .setDescription(option.welcome_message || `أهلاً بك ${interaction.user}، تم فتح التذكرة بنجاح.`)
+        .setColor(config.color || '#0284c7')
+        .setTimestamp();
+
+      // **المطلوب بدقة:** عند فتح التذكرة يظهر زر إغلاق التذكرة وزر استلام التذكرة فقط!
+      const initialRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('ticket_claim_btn').setLabel('استلام التذكرة').setEmoji('📌').setStyle(ButtonStyle.Primary)
+      );
+
+      await ticketChannel.send({ content: `${interaction.user} | <@&${config.admin_role_id}>`, embeds: [welcomeEmbed], components: [initialRow] });
+      return interaction.editReply({ content: `✅ تم إنشاء التذكرة بنجاح: ${ticketChannel}` });
+    }
+
+    // 3. أزرار التحكم داخل التذكرة (استلام، إغلاق، فتح، ترانسكريبت، حذف)
+    if (interaction.isButton() && [
+      'ticket_claim_btn', 'ticket_unclaim_btn', 'ticket_close_req', 
+      'ticket_unlock', 'ticket_save_log', 'ticket_delete'
+    ].includes(interaction.customId)) {
+
+      let topicData = {};
+      try { topicData = JSON.parse(interaction.channel.topic || '{}'); } catch(e){}
+      const ownerId = topicData.ownerId;
+      const panelId = topicData.panelId;
+
+      let config = null;
+      if (panelId) {
+        const cRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [panelId]);
+        config = cRes.rows[0];
+      }
+      if (!config) {
+        const cRes2 = await pool.query('SELECT * FROM panels LIMIT 1');
+        config = cRes2.rows[0];
+      }
+      if (!config) return interaction.reply({ content: '❌ خطأ في العثور على إعدادات التذاكر.', ephemeral: true });
+
+      const member = interaction.member;
+      const isAdmin = member.roles.cache.has(config.admin_role_id) || member.permissions.has(PermissionFlagsBits.ManageChannels);
+      const isHighAdmin = member.roles.cache.has(config.high_admin_role_id) || member.permissions.has(PermissionFlagsBits.Administrator);
+
+      const permsRes = await pool.query('SELECT * FROM permissions WHERE key = $1', ['main_perms']);
+      const perms = permsRes.rows[0] || {};
+
+      // أ. زر استلام التذكرة
+      if (interaction.customId === 'ticket_claim_btn') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+
+        await interaction.channel.permissionOverwrites.edit(config.admin_role_id, { SendMessages: false }).catch(() => {});
+        if (ownerId) await interaction.channel.permissionOverwrites.edit(ownerId, { SendMessages: true }).catch(() => {});
+
+        const claimedRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('ticket_unclaim_btn').setLabel('إلغاء الاستلام').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
+        );
+
+        await interaction.update({ content: `📌 **تم استلام التذكرة بواسطة:** ${interaction.user}\nتم قفل التحدث لبقية الإداريين مؤقتاً.`, components: [claimedRow] });
+        return;
+      }
+
+      // ب. زر إلغاء الاستلام
+      if (interaction.customId === 'ticket_unclaim_btn') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ مخصص للإدارة فقط!', ephemeral: true });
+
+        await interaction.channel.permissionOverwrites.edit(config.admin_role_id, { SendMessages: true }).catch(() => {});
+
+        const unclaimedRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('ticket_claim_btn').setLabel('استلام التذكرة').setEmoji('📌').setStyle(ButtonStyle.Primary)
+        );
+
+        await interaction.update({ content: `🔄 **تم إلغاء الاستلام بواسطة:** ${interaction.user}\nيمكن لجميع الإداريين الكتابة بالتذكرة الآن.`, components: [unclaimedRow] });
+        return;
+      }
+
+      // ج. زر طلب إغلاق التذكرة (يظهر خيارات التحكم الإضافية هنا حصراً)
+      if (interaction.customId === 'ticket_close_req') {
+        const closeAllowed = perms.close_permission === 'admin_only' ? (isAdmin || isHighAdmin) : (isAdmin || isHighAdmin || interaction.user.id === ownerId);
+        if (!closeAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية إغلاق التذكرة!', ephemeral: true });
+
+        const controlRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_unlock').setLabel('فتح التذكرة').setEmoji('🔓').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('ticket_save_log').setLabel('حفظ الترانسكريبت').setEmoji('📁').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف التذكرة').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
+        );
+
+        await interaction.update({
+          content: `🔒 **تم طلب إغلاق التذكرة بواسطة:** ${interaction.user}`,
+          components: [controlRow]
+        });
+
+        if (ownerId) {
+          await interaction.channel.permissionOverwrites.edit(ownerId, { SendMessages: false }).catch(() => {});
+        }
+        return;
+      }
+
+      // د. زر إعادة فتح التذكرة
+      if (interaction.customId === 'ticket_unlock') {
+        if (!isAdmin && !isHighAdmin) return interaction.reply({ content: '❌ للإدارة فقط!', ephemeral: true });
+
+        if (ownerId) {
+          await interaction.channel.permissionOverwrites.edit(ownerId, { SendMessages: true }).catch(() => {});
+        }
+
+        const reopenRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close_req').setLabel('إغلاق التذكرة').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('ticket_claim_btn').setLabel('استلام التذكرة').setEmoji('📌').setStyle(ButtonStyle.Primary)
+        );
+
+        await interaction.update({ content: `🔓 **تم إعادة فتح التذكرة بواسطة:** ${interaction.user}`, components: [reopenRow] });
+        return;
+      }
+
+      // هـ. زر حفظ الترانسكريبت
+      if (interaction.customId === 'ticket_save_log') {
+        const saveAllowed = perms.save_permission === 'admin_only' ? isHighAdmin : (isAdmin || isHighAdmin);
+        if (!saveAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية حفظ الترانسكريبت!', ephemeral: true });
+
+        await interaction.deferReply({ ephemeral: true });
+        const success = await saveTranscript(interaction.channel, config, interaction.user, { ownerId });
+        if (success) return interaction.editReply({ content: '✅ تم حفظ الترانسكريبت وإرساله إلى روم اللوق بنجاح!' });
+        return interaction.editReply({ content: '❌ تعذر العثور على روم اللوق أو إنشاء الملف.' });
+      }
+
+      // و. زر حذف التذكرة
+      if (interaction.customId === 'ticket_delete') {
+        const deleteAllowed = perms.delete_permission === 'all_admin' ? (isAdmin || isHighAdmin) : isHighAdmin;
+        if (!deleteAllowed) return interaction.reply({ content: '❌ لا تمتلك صلاحية حذف التذكرة (مخصص للإدارة العليا)!', ephemeral: true });
+
+        await interaction.reply({ content: '🗑️ سيتم حذف التذكرة خلال 3 ثوانٍ...' });
+        setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
+        return;
+      }
+    }
+
+  } catch (err) {
+    console.error('Error handling interaction:', err);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: '❌ حدث خطأ أثناء تنفيذ الأوامر.', ephemeral: true }).catch(() => {});
+    }
+  }
 });
 
+// ==========================================
+// 5. تشغيل البوت
+// ==========================================
 client.login(process.env.DISCORD_TOKEN);
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🌐 لوحة التحكم تعمل الآن على البورت ${PORT}`);
-});
