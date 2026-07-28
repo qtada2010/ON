@@ -546,7 +546,7 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
 
         <hr style="border-color:#334155; margin:25px 0;">
         <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
-        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>}
+        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>'}
       </div>
     </body>
     </html>
