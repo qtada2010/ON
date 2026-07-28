@@ -9,6 +9,9 @@ const {
   EmbedBuilder, 
   ChannelType, 
   PermissionFlagsBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle
@@ -126,7 +129,7 @@ async function initDatabase() {
       ALTER TABLE apply_setup ADD COLUMN IF NOT EXISTS accepted_role_id VARCHAR(100);
     `);
 
-    // 6. جدول نقاط الإدارة (للاستلام)
+    // 6. جدول نقاط الإدارة
     await pool.query(`
       CREATE TABLE IF NOT EXISTS admin_points (
         user_id VARCHAR(100) PRIMARY KEY,
@@ -134,7 +137,7 @@ async function initDatabase() {
       );
     `);
 
-    // 7. جدول تتبع التذاكر المستلمة (لمنع تكرار احتساب النقطة لنفس التذكرة لنفس الشخص)
+    // 7. جدول تتبع التذاكر المستلمة
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ticket_claims (
         channel_id VARCHAR(100) PRIMARY KEY,
@@ -165,7 +168,7 @@ const PREFIX = '!';
 const ADMIN_PREFIX = '$';
 let ownerLogChannelId = null;
 
-// تفعيل نظام الأوامر الإضافية من system.js (مع تمرير pool لنظام النقاط)
+// تفعيل نظام الأوامر المساعدة مع تمرير قاعدة البيانات لنظام النقاط
 systemCommands(client, PREFIX, pool);
 
 // ==========================================
@@ -987,11 +990,12 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(option.welcome_message || 'أهلاً بك، تم فتح التذكرة بنجاح.')
         .setColor(config.color || 0x0284c7).setTimestamp();
 
-      // تم إضافة زر الاستلام هنا (Claim)
+      // أزرار التكت الأصلية (إغلاق، ترانسكريبت، حذف) + زر الاستلام الجديد (Claim) بدون تعديل صلاحيات التكت
       const controlRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ticket_claim').setLabel('استلام').setStyle(ButtonStyle.Success).setEmoji('🙋‍♂️'),
         new ButtonBuilder().setCustomId('ticket_close').setLabel('إغلاق').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾')
+        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾'),
+        new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
       );
 
       await ticketChannel.send({ content: `${interaction.user} | <@&${config.admin_role_id}>`, embeds: [welcomeEmbed], components: [controlRow] });
@@ -1033,7 +1037,8 @@ client.on('interactionCreate', async (interaction) => {
       const controlRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ticket_claim').setLabel('استلام').setStyle(ButtonStyle.Success).setEmoji('🙋‍♂️'),
         new ButtonBuilder().setCustomId('ticket_close').setLabel('إغلاق').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾')
+        new ButtonBuilder().setCustomId('ticket_save_log').setLabel('الترانسكريبت').setStyle(ButtonStyle.Secondary).setEmoji('💾'),
+        new ButtonBuilder().setCustomId('ticket_delete').setLabel('حذف').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
       );
 
       await ticketChannel.send({ content: `${interaction.user} | <@&${config.admin_role_id}>`, embeds: [welcomeEmbed], components: [controlRow] });
@@ -1056,19 +1061,17 @@ client.on('interactionCreate', async (interaction) => {
       const isHighAdmin = member.roles.cache.has(config.high_admin_role_id) || member.permissions.has(PermissionFlagsBits.Administrator);
       const isOwner = interaction.user.id === ticketData.ownerId;
 
-      // زر الاستلام (Claim)
+      // زر الاستلام (Claim) مخصص للإدارة فقط ولا يغير صلاحيات التكت بل يعطي نقطة فقط
       if (interaction.customId === 'ticket_claim') {
         if (!isAdmin && !isHighAdmin) {
           return interaction.reply({ content: '❌ زر الاستلام مخصص للإدارة فقط!', ephemeral: true });
         }
 
-        // تحقق هل تم استلام هذه التذكرة مسبقاً
         const claimedCheck = await pool.query('SELECT * FROM ticket_claims WHERE channel_id = $1', [interaction.channel.id]);
         if (claimedCheck.rows.length > 0) {
           return interaction.reply({ content: `⚠️ تم استلام هذه التذكرة مسبقاً بواسطة <@${claimedCheck.rows[0].claimed_by}>!`, ephemeral: true });
         }
 
-        // تسجيل استلام التذكرة وإضافة نقطة للإداري
         await pool.query('INSERT INTO ticket_claims (channel_id, claimed_by) VALUES ($1, $2)', [interaction.channel.id, interaction.user.id]);
         await pool.query(`
           INSERT INTO admin_points (user_id, points) VALUES ($1, 1)
