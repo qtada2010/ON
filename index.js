@@ -168,7 +168,7 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
-('/login', (req, res) => {
+app.get('/login', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -206,13 +206,13 @@ app.post('/login', (req, res) => {
   }
 });
 
-('/logout', (req, res) => {
+app.get('/logout', (req, res) => {
   res.setHeader('Set-Cookie', 'auth_pass=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   res.redirect('/login');
 });
 
 // الصفحة الرئيسية
-('/', requireAuth, (req, res) => {
+app.get('/', requireAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -258,7 +258,7 @@ app.post('/login', (req, res) => {
 // ==========================================
 // إدارة لوحات التذاكر
 // ==========================================
-('/panel', requireAuth, async (req, res) => {
+app.get('/panel', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM panels');
   let panelsListHTML = '';
 
@@ -416,86 +416,23 @@ app.get('/delete-panel/:id', requireAuth, async (req, res) => {
   res.redirect('/panel');
 });
 
-
-
-
-// دوال الحفظ والتحديث في قاعدة البيانات
-app.post('/update-panel-main-secure', requireAuth, async (req, res) => {
-  const { panelId, title, description, color, imageUrl } = req.body;
-  await pool.query(`
-    UPDATE panels 
-    SET title = $1, description = $2, color = $3, image_url = $4 
-    WHERE panel_id = $5
-  `, [title, description, color, imageUrl ? imageUrl.trim() : null, panelId]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.post('/update-option-secure/:id', requireAuth, async (req, res) => {
-  const { panelId, label, description, emoji, welcomeMessage, buttonStyle } = req.body;
-  await pool.query(`
-    UPDATE panel_options 
-    SET label = $1, description = $2, emoji = $3, welcome_message = $4, button_style = $5 
-    WHERE id = $6
-  `, [label.trim(), description || '', emoji || '', welcomeMessage, buttonStyle, req.params.id]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.get('/delete-option-secure/:id/:panelId', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM panel_options WHERE id = $1', [req.params.id]);
-  res.redirect(`/edit-panel/${req.params.panelId}`);
-});
-
-
 app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   const pRes = await pool.query('SELECT * FROM panels WHERE panel_id = $1', [req.params.id]);
   const panel = pRes.rows[0];
-  if (!panel) return res.send('❌ اللوحة غير موجودة');
+  if (!panel) return res.send('اللوحة غير موجودة');
 
   const optionsRes = await pool.query('SELECT * FROM panel_options WHERE panel_id = $1 ORDER BY id ASC', [panel.panel_id]);
   let optionsHTML = '';
 
   optionsRes.rows.forEach((opt, index) => {
     optionsHTML += `
-      <div style="background:#0f172a; padding:20px; border-radius:8px; margin-bottom:20px; border:1px solid #334155;">
-        <form action="/update-option-secure/${opt.id}" method="POST">
-          <input type="hidden" name="panelId" value="${panel.panel_id}">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span style="color:#eab308; font-weight:bold;">⚙️ تعديل الزر / الخيار #${index + 1}</span>
-            <a href="/delete-option-secure/${opt.id}/${panel.panel_id}" onclick="return confirm('هل أنت متأكد من حذف هذا الزر؟')" style="color:#ef4444; font-weight:bold; text-decoration:none;">🗑️ حذف الزر</a>
-          </div>
-
-          <div style="display:flex; gap:15px;">
-            <div style="flex:2;">
-              <label style="font-size:13px; color:#94a3b8;">اسم الزر (Label):</label>
-              <input type="text" name="label" value="${opt.label || ''}" required style="width:100%; padding:8px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-            </div>
-            <div style="flex:1;">
-              <label style="font-size:13px; color:#94a3b8;">لون الزر:</label>
-              <select name="buttonStyle" style="width:100%; padding:8px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-                <option value="Primary" ${opt.button_style === 'Primary' ? 'selected' : ''}>أزرق (Primary)</option>
-                <option value="Secondary" ${opt.button_style === 'Secondary' ? 'selected' : ''}>رمادي (Secondary)</option>
-                <option value="Success" ${opt.button_style === 'Success' ? 'selected' : ''}>أخضر (Success)</option>
-                <option value="Danger" ${opt.button_style === 'Danger' ? 'selected' : ''}>أحمر (Danger)</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:15px; margin-top:10px;">
-            <div style="flex:2;">
-              <label style="font-size:13px; color:#94a3b8;">الوصف الفرعي:</label>
-              <input type="text" name="description" value="${opt.description || ''}" style="width:100%; padding:8px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-            </div>
-            <div style="flex:1;">
-              <label style="font-size:13px; color:#94a3b8;">الإيموجي:</label>
-              <input type="text" name="emoji" value="${opt.emoji || ''}" style="width:100%; padding:8px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-            </div>
-          </div>
-
-          <label style="font-size:13px; color:#94a3b8; margin-top:10px;">رسالة الترحيب الخاصة بداخل التكت:</label>
-          <textarea name="welcomeMessage" rows="2" style="width:100%; padding:8px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;" required>${opt.welcome_message || ''}</textarea>
-
-          <button type="submit" style="background:#3b82f6; color:white; padding:8px 15px; border:none; border-radius:5px; margin-top:10px; font-weight:bold; cursor:pointer;">💾 حفظ التعديلات على هذا الزر</button>
-        </form>
+      <div style="background:#0f172a; padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #334155;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color:#eab308; font-weight:bold;">#${index + 1} الخيار: ${opt.label}</span>
+          <a href="/delete-option/${opt.id}/${panel.panel_id}" style="color:#ef4444; font-weight:bold; text-decoration:none;">🗑️ حذف</a>
+        </div>
+        <p style="margin:5px 0; color:#94a3b8; font-size:14px;">الوصف: ${opt.description || 'بدون'} | الإيموجي: ${opt.emoji || 'بدون'} | لون الزر: <strong>${opt.button_style}</strong></p>
+        <p style="margin:5px 0; color:#38bdf8; font-size:13px;">رسالة الترحيب: ${opt.welcome_message}</p>
       </div>
     `;
   });
@@ -503,224 +440,98 @@ app.get('/edit-panel/:id', requireAuth, async (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
-    <head><meta charset="UTF-8"><title>تعديل اللوحة الشامل ${panel.panel_id}</title></head>
-    <body style="font-family:sans-serif; background:#0f172a; color:#f8fafc; margin:0; padding:30px;">
-      <div style="max-width:900px; margin:auto; background:#1e293b; padding:30px; border-radius:12px; border:1px solid #334155;">
-        <a href="/panel" style="color:#38bdf8; text-decoration:none;">⬅ العودة لإدارة اللوحات</a>
-        <h1 style="color:#38bdf8;">⚙️ التعديل الشامل للبانل: ${panel.title}</h1>
+    <head>
+      <meta charset="UTF-8">
+      <title>تعديل اللوحة ${panel.panel_id}</title>
+      <style>
+        body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin:0; padding:0; }
+        nav { background: #1e293b; padding: 15px 30px; display: flex; justify-content: space-between; border-bottom: 1px solid #334155; }
+        nav .links a { color: #38bdf8; text-decoration: none; font-weight: bold; margin-left: 20px; }
+        .container { max-width: 900px; margin: 40px auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; }
+        h1, h2, h3 { color: #38bdf8; }
+        label { display: block; margin-top: 10px; font-weight: bold; color:#cbd5e1; }
+        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; }
+        .btn-add { background: #10b981; color: white; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 15px; }
+        .btn-send { background: #0284c7; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; font-size: 15px; }
+        .btn-update { background: #f59e0b; color: white; padding: 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; width: 48%; font-size: 15px; }
+      </style>
+    </head>
+    <body>
+      <nav>
+        <div class="links">
+          <a href="/">الرئيسية 🏠</a>
+          <a href="/panel">إدارة التذاكر ⚙️</a>
+          <a href="/apply-setup">تقديم الإدارة 📝</a>
+          <a href="/admin-commands">صلاحيات الأوامر 🛡️</a>
+          <a href="/stats">الإحصائيات 📊</a>
+        </div>
+        <a href="/logout" style="color:#ef4444; font-weight:bold; text-decoration:none;">تسجيل الخروج 🚪</a>
+      </nav>
+      <div class="container">
+        <h1>⚙️ التحكم الكامل في اللوحة: ${panel.title}</h1>
 
-        <form action="/update-panel-main-secure" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom:25px;">
+        <h2>➕ إضافة زر / خيار جديد للوحة:</h2>
+        <form action="/add-option" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155;">
           <input type="hidden" name="panelId" value="${panel.panel_id}">
-          <h3 style="color:#38bdf8; margin-top:0;">📌 محتوى البانل الأساسي:</h3>
-          
-          <div style="display:flex; gap:15px; margin-bottom:15px;">
-            <div style="flex:3;">
-              <label style="color:#cbd5e1; font-weight:bold;">عنوان اللوحة:</label>
-              <input type="text" name="title" value="${panel.title || ''}" required style="width:100%; padding:8px; margin-top:5px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
+
+          <div style="display:flex; gap:15px;">
+            <div style="flex:2;">
+              <label>اسم الخيار / الزر (Label):</label>
+              <input type="text" name="label" placeholder="مثال: طلب وسيط جديد" required>
             </div>
             <div style="flex:1;">
-              <label style="color:#cbd5e1; font-weight:bold;">لون الإيمبد:</label>
-              <input type="color" name="color" value="${panel.color || '#0284c7'}" style="width:100%; height:38px; margin-top:5px; background:#1e293b; border:1px solid #334155; border-radius:4px; cursor:pointer;">
+              <label>لون الزر (ButtonStyle):</label>
+              <select name="buttonStyle">
+                <option value="Primary">أزرق (Primary)</option>
+                <option value="Secondary">رمادي (Secondary)</option>
+                <option value="Success">أخضر (Success)</option>
+                <option value="Danger">أحمر (Danger)</option>
+              </select>
             </div>
           </div>
 
-          <label style="color:#cbd5e1; font-weight:bold;">وصف اللوحة:</label>
-          <textarea name="description" rows="4" required style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">${panel.description || ''}</textarea>
-
-          <label style="color:#cbd5e1; font-weight:bold;">رابط الصورة (Image/Banner URL):</label>
-          <input type="url" name="imageUrl" value="${panel.image_url || ''}" placeholder="https://example.com/image.png" style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-
-          <button type="submit" style="background:#8b5cf6; color:white; padding:10px; border:none; border-radius:6px; font-weight:bold; width:100%; cursor:pointer;">💾 حفظ التعديلات الأساسية للبانل</button>
-        </form>
-
-        <hr style="border-color:#334155; margin:25px 0;">
-        <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
-        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>'}
-      </div>
-    </body>
-    </html>
-  `);
-});
-
-// دوال الحفظ والتحديث في قاعدة البيانات
-app.post('/update-panel-main-secure', requireAuth, async (req, res) => {
-  const { panelId, title, description, color, imageUrl } = req.body;
-  await pool.query(`
-    UPDATE panels 
-    SET title = $1, description = $2, color = $3, image_url = $4 
-    WHERE panel_id = $5
-  `, [title, description, color, imageUrl ? imageUrl.trim() : null, panelId]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.post('/update-option-secure/:id', requireAuth, async (req, res) => {
-  const { panelId, label, description, emoji, welcomeMessage, buttonStyle } = req.body;
-  await pool.query(`
-    UPDATE panel_options 
-    SET label = $1, description = $2, emoji = $3, welcome_message = $4, button_style = $5 
-    WHERE id = $6
-  `, [label.trim(), description || '', emoji || '', welcomeMessage, buttonStyle, req.params.id]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.get('/delete-option-secure/:id/:panelId', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM panel_options WHERE id = $1', [req.params.id]);
-  res.redirect(`/edit-panel/${req.params.panelId}`);
-});
-
-
-
-
-
-
-
-
-
-
-// دوال معالجة وحفظ البيانات في قاعدة البيانات (تضاف أسفل الكود السابق مباشرة في index.js)
-app.post('/update-panel-main-secure', requireAuth, async (req, res) => {
-  const { panelId, title, description, color, imageUrl } = req.body;
-  await pool.query(`
-    UPDATE panels 
-    SET title = $1, description = $2, color = $3, image_url = $4 
-    WHERE panel_id = $5
-  `, [title, description, color, imageUrl ? imageUrl.trim() : null, panelId]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.post('/update-option-secure/:id', requireAuth, async (req, res) => {
-  const { panelId, label, description, emoji, welcomeMessage, buttonStyle } = req.body;
-  await pool.query(`
-    UPDATE panel_options 
-    SET label = $1, description = $2, emoji = $3, welcome_message = $4, button_style = $5 
-    WHERE id = $6
-  `, [label.trim(), description || '', emoji || '', welcomeMessage, buttonStyle, req.params.id]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.get('/delete-option-secure/:id/:panelId', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM panel_options WHERE id = $1', [req.params.id]);
-  res.redirect(`/edit-panel/${req.params.panelId}`);
-});
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head><meta charset="UTF-8"><title>تعديل اللوحة الشامل ${panel.panel_id}</title></head>
-    <body style="font-family:sans-serif; background:#0f172a; color:#f8fafc; margin:0; padding:30px;">
-      <div style="max-width:900px; margin:auto; background:#1e293b; padding:30px; border-radius:12px; border:1px solid #334155;">
-        <a href="/panel" style="color:#38bdf8; text-decoration:none;">⬅ العودة لإدارة اللوحات</a>
-        <h1 style="color:#38bdf8;">⚙️ التعديل الشامل للبانل: ${panel.title}</h1>
-
-        <form action="/update-panel-main-secure" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom:25px;">
-          <input type="hidden" name="panelId" value="${panel.panel_id}">
-          <h3 style="color:#38bdf8; margin-top:0;">📌 محتوى البانل الأساسي (اللون، الصورة، النص):</h3>
-          
-          <div style="display:flex; gap:15px; margin-bottom:15px;">
-            <div style="flex:3;">
-              <label style="color:#cbd5e1; font-weight:bold;">عنوان اللوحة:</label>
-              <input type="text" name="title" value="${panel.title || ''}" required style="width:100%; padding:8px; margin-top:5px; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
+          <div style="display:flex; gap:15px;">
+            <div style="flex:2;">
+              <label>الوصف الفرعي (يظهر تحت الاسم إذا كانت اللوحة قائمة منسدلة):</label>
+              <input type="text" name="description" placeholder="وساطة سريعة لجميع المبالغ">
             </div>
             <div style="flex:1;">
-              <label style="color:#cbd5e1; font-weight:bold;">لون الإيمبد:</label>
-              <input type="color" name="color" value="${panel.color || '#0284c7'}" style="width:100%; height:38px; margin-top:5px; background:#1e293b; border:1px solid #334155; border-radius:4px; cursor:pointer;">
+              <label>الإيموجي (اختياري):</label>
+              <input type="text" name="emoji" placeholder="🤝">
             </div>
           </div>
 
-          <label style="color:#cbd5e1; font-weight:bold;">وصف اللوحة (محتوى الرسالة):</label>
-          <textarea name="description" rows="4" required style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">${panel.description || ''}</textarea>
+          <label>رسالة الترحيب الخاّصة التي تُرسل بداخل التكت فور فتح هذا الخيار:</label>
+          <textarea name="welcomeMessage" rows="2" required>أهلاً بك! تم فتح التذكرة بنجاح، انتظر رد الإدارة.</textarea>
 
-          <label style="color:#cbd5e1; font-weight:bold;">رابط الصورة (Image/Banner URL - يظهر بجانب البانل):</label>
-          <input type="url" name="imageUrl" value="${panel.image_url || ''}" placeholder="https://example.com/image.png" style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-
-          <button type="submit" style="background:#8b5cf6; color:white; padding:10px; border:none; border-radius:6px; font-weight:bold; width:100%; cursor:pointer;">💾 حفظ التعديلات الأساسية للبانل</button>
+          <button type="submit" class="btn-add">➕ إضافة الزر/الخيار إلى اللوحة</button>
         </form>
 
-        <hr style="border-color:#334155; margin:25px 0;">
-        <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
-        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>'}
+        <hr style="margin: 30px 0; border-color: #334155;">
+        <h2>📋 الخيارات والأزرار الحالية (${optionsRes.rows.length}):</h2>
+        ${optionsHTML || '<p>لا يوجد خيارات مضافة لهذه اللوحة بعد.</p>'}
+
+        ${optionsRes.rows.length > 0 ? `
+          <div style="display:flex; justify-content:space-between; margin-top:20px;">
+            <form action="/publish-panel" method="POST" style="width:48%;">
+              <input type="hidden" name="panelId" value="${panel.panel_id}">
+              <input type="hidden" name="mode" value="update">
+              <button type="submit" class="btn-update">🔄 تحديث اللوحة القديمة بفروم ديسكورد</button>
+            </form>
+
+            <form action="/publish-panel" method="POST" style="width:48%;">
+              <input type="hidden" name="panelId" value="${panel.panel_id}">
+              <input type="hidden" name="mode" value="new">
+              <button type="submit" class="btn-send">🚀 إرسال لوحة جديدة بداخل الروم</button>
+            </form>
+          </div>
+        ` : ''}
       </div>
     </body>
     </html>
   `);
 });
 
-// دوال معالجة وحفظ البيانات في قاعدة البيانات (تضاف أسفل الكود السابق مباشرة في index.js)
-app.post('/update-panel-main-secure', requireAuth, async (req, res) => {
-  const { panelId, title, description, color, imageUrl } = req.body;
-  await pool.query(`
-    UPDATE panels 
-    SET title = $1, description = $2, color = $3, image_url = $4 
-    WHERE panel_id = $5
-  `, [title, description, color, imageUrl ? imageUrl.trim() : null, panelId]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.post('/update-option-secure/:id', requireAuth, async (req, res) => {
-  const { panelId, label, description, emoji, welcomeMessage, buttonStyle } = req.body;
-  await pool.query(`
-    UPDATE panel_options 
-    SET label = $1, description = $2, emoji = $3, welcome_message = $4, button_style = $5 
-    WHERE id = $6
-  `, [label.trim(), description || '', emoji || '', welcomeMessage, buttonStyle, req.params.id]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.get('/delete-option-secure/:id/:panelId', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM panel_options WHERE id = $1', [req.params.id]);
-  res.redirect(`/edit-panel/${req.params.panelId}`);
-});
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head><meta charset="UTF-8"><title>تعديل اللوحة ${panel.panel_id}</title></head>
-    <body style="font-family:sans-serif; background:#0f172a; color:#f8fafc; margin:0; padding:30px;">
-      <div style="max-width:900px; margin:auto; background:#1e293b; padding:30px; border-radius:12px; border:1px solid #334155;">
-        <a href="/panel" style="color:#38bdf8; text-decoration:none;">⬅ العودة لإدارة اللوحات</a>
-        <h1 style="color:#38bdf8;">⚙️ تعديل اللوحة والأزرار: ${panel.title}</h1>
-
-        <form action="/update-panel-main-secure" method="POST" style="background:#0f172a; padding:20px; border-radius:8px; border:1px solid #334155; margin-bottom:25px;">
-          <input type="hidden" name="panelId" value="${panel.panel_id}">
-          <h3 style="color:#38bdf8; margin-top:0;">📌 محتوى اللوحة الرئيسي:</h3>
-          
-          <label style="color:#cbd5e1; font-weight:bold;">عنوان اللوحة:</label>
-          <input type="text" name="title" value="${panel.title || ''}" required style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">
-
-          <label style="color:#cbd5e1; font-weight:bold;">وصف اللوحة:</label>
-          <textarea name="description" rows="3" required style="width:100%; padding:8px; margin:5px 0 15px 0; background:#1e293b; color:#fff; border:1px solid #334155; border-radius:4px;">${panel.description || ''}</textarea>
-
-          <button type="submit" style="background:#8b5cf6; color:white; padding:10px; border:none; border-radius:6px; font-weight:bold; width:100%; cursor:pointer;">💾 حفظ محتوى البانل الرئيسي</button>
-        </form>
-
-        <hr style="border-color:#334155; margin:25px 0;">
-        <h2 style="color:#38bdf8;">📋 الأزرار الحالية:</h2>
-        ${optionsHTML || '<p>لا توجد أزرار مضافة بعد.</p>'}
-      </div>
-    </body>
-    </html>
-  `);
-});
-
-// دوال حفظ التعديلات في قاعدة البيانات (تضاف أسفل هذا الكود مباشرة)
-app.post('/update-panel-main-secure', requireAuth, async (req, res) => {
-  const { panelId, title, description } = req.body;
-  await pool.query('UPDATE panels SET title = $1, description = $2 WHERE panel_id = $3', [title, description, panelId]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.post('/update-option-secure/:id', requireAuth, async (req, res) => {
-  const { panelId, label, description, emoji, welcomeMessage, buttonStyle } = req.body;
-  await pool.query(`
-    UPDATE panel_options 
-    SET label = $1, description = $2, emoji = $3, welcome_message = $4, button_style = $5 
-    WHERE id = $6
-  `, [label.trim(), description || '', emoji || '', welcomeMessage, buttonStyle, req.params.id]);
-  res.redirect(`/edit-panel/${panelId}`);
-});
-
-app.get('/delete-option-secure/:id/:panelId', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM panel_options WHERE id = $1', [req.params.id]);
-  res.redirect(`/edit-panel/${req.params.panelId}`);
-});
 app.post('/add-option', requireAuth, async (req, res) => {
   const d = req.body;
   const optionId = `opt_${Date.now()}`;
